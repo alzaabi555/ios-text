@@ -1,4 +1,4 @@
-import flet as ft
+import flet as ft  # <--- هذا هو السطر الذي كان ناقصاً
 
 class StudentApp:
     def __init__(self):
@@ -20,28 +20,21 @@ class StudentApp:
         # حقل إدخال اسم طالب جديد
         new_student_name = ft.TextField(hint_text="اسم الطالب الجديد", expand=True)
 
-        def add_student(e):
-            if new_student_name.value:
-                self.students.append({"name": new_student_name.value, "score": 0, "present": True})
-                new_student_name.value = ""
-                render_students()
-                page.update()
-
-        # دالة لتحديث واجهة قائمة الطلاب
-        students_column = ft.Column()
-
         def render_students():
+            # تنظيف القائمة قبل إعادة الرسم
             students_column.controls.clear()
+            
             for i, student in enumerate(self.students):
                 
                 # تعريف عناصر التحكم لكل طالب
                 score_text = ft.Text(f"النقاط: {student['score']}", size=16, weight="bold")
+                
                 status_icon = ft.Icon(
                     name=ft.icons.CHECK_CIRCLE if student['present'] else ft.icons.CANCEL,
                     color="green" if student['present'] else "red"
                 )
                 
-                # دالة لزيادة النقاط
+                # دالة لزيادة النقاط (تستخدم i الحالية عبر الـ closure)
                 def add_points(e, idx=i):
                     self.students[idx]['score'] += 1
                     render_students()
@@ -82,6 +75,17 @@ class StudentApp:
                     )
                 )
                 students_column.controls.append(card)
+
+        # تعريف عمود الطلاب
+        students_column = ft.Column()
+
+        # دالة إضافة طالب جديد
+        def add_student(e):
+            if new_student_name.value:
+                self.students.append({"name": new_student_name.value, "score": 0, "present": True})
+                new_student_name.value = ""
+                render_students()
+                page.update()
 
         # استدعاء أولي للعرض
         render_students()
