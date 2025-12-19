@@ -26,17 +26,24 @@ jobs:
       - name: Install CocoaPods
         run: sudo gem install cocoapods
 
-      - name: Prepare Project
-        # 1. ننشئ مجلداً جديداً نظيفاً تماماً اسمه build_env
-        # 2. ننقل ملف الكود main.py إليه
+      - name: Prepare Project & Generate iOS Files
+        # التعديل الهام هنا:
+        # 1. ننشئ المشروع
+        # 2. ننقل الملفات
+        # 3. نجبر فلاتر على إنشاء مجلد ios فوراً باستخدام flutter create
         run: |
           flet create build_env
           cp main.py build_env/
           if [ -f requirements.txt ]; then cp requirements.txt build_env/; fi
+          
+          # الدخول للمجلد
+          cd build_env
+          
+          # هذا الأمر هو الحل: إنشاء ملفات الايفون الآن
+          flutter create . --platforms ios
 
       - name: Disable Code Signing in Xcode Project
-        # هذه الخطوة تعدل إعدادات ملف المشروع مباشرة لإلغاء طلب الشهادات
-        # هذا ضروري جداً لأن أمر --no-codesign وحده لا يكفي أحياناً
+        # الآن المجلد موجود بالتأكيد، ويمكننا تعديله
         run: |
           cd build_env/ios
           sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj
@@ -44,17 +51,14 @@ jobs:
           sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
 
       - name: Build IPA Manually
-        # الآن نطلب من فلاتر البناء مباشرة
-        # نحن الآن داخل المجلد الصحيح build_env
         run: |
           cd build_env
           flutter build ios --release --no-codesign
 
       - name: Package IPA
-        # تجميع التطبيق الناتج
         run: |
           mkdir Payload
-          # المسار معروف الآن بدقة لأننا بنيناه يدوياً
+          # نقل التطبيق الناتج
           mv build_env/build/ios/iphoneos/Runner.app Payload/
           zip -r StudentApp.ipa Payload
 
