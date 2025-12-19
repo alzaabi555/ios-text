@@ -15,46 +15,65 @@ jobs:
           python-version: '3.11'
 
       - name: Install Flet
-        run: pip install flet
+        # سنستخدم نسخة مستقرة جداً ومجربة
+        run: pip install flet==0.22.1
 
       - name: Setup Flutter
-        # قمنا بتحديث النسخة إلى 3.24.0 لتتوافق مع أحدث إصدارات Flet
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.19.0'
           channel: 'stable'
       
       - name: Install CocoaPods
         run: sudo gem install cocoapods
 
-      - name: Create Requirements File
-        # إضافة مكتبات النظام الضرورية جداً لتجنب الشاشة البيضاء
+      - name: Create Requirements
         run: |
-          echo "flet" > requirements.txt
+          echo "flet==0.22.1" > requirements.txt
           echo "certifi" >> requirements.txt
           echo "typing_extensions" >> requirements.txt
           echo "urllib3" >> requirements.txt
           echo "requests" >> requirements.txt
-          echo "packaging" >> requirements.txt
-          echo "charset-normalizer" >> requirements.txt
-          echo "idna" >> requirements.txt
 
-      - name: Build IPA (Verbose Mode)
-        # --verbose يساعد في طباعة الأخطاء لو حدثت أثناء البناء
+      - name: Generate Project Source Code
+        # نطلب من Flet توليد الكود فقط في مجلد build_env دون البناء
         run: |
-          flet build ipa . --project StudentApp --flutter-build-args="--no-codesign" --verbose
+          flet build ipa --project build_env --verbose
 
-      - name: Locate and Package IPA
+      - name: FIX WHITE SCREEN (Disable Impeller)
+        # هذه هي الخطوة الجديدة والسحرية
+        # نقوم بحقن أمر تعطيل المحرك الجديد في إعدادات التطبيق
+        run: |
+          cd build_env/ios/Runner
+          # أمر لإضافة مفتاح إلغاء Impeller
+          /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" Info.plist
+          # طباعة الملف للتأكد (اختياري)
+          cat Info.plist
+
+      - name: Disable Code Signing
+        # تعطيل التوقيع يدوياً كما تعودنا
+        run: |
+          cd build_env/ios
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
+
+      - name: Build IPA Manually
+        # الآن نبني التطبيق باستخدام المحرك القديم
+        run: |
+          cd build_env
+          flutter build ios --release --no-codesign
+
+      - name: Package IPA
         run: |
           mkdir Payload
-          APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
+          APP_PATH=$(find build_env/build/ios/iphoneos -name "Runner.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
-            echo "Error: Runner.app not found! Build failed."
+            echo "Error: Runner.app not found!"
             exit 1
           fi
           
-          echo "Found App at: $APP_PATH"
           cp -r "$APP_PATH" Payload/
           zip -r StudentApp.ipa Payload
 
