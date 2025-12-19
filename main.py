@@ -1,58 +1,52 @@
-import flet as ft  # <--- هذا هو السطر الذي كان ناقصاً
+import flet as ft
+import traceback  # مكتبة مهمة تظهر تفاصيل الخطأ
 
 class StudentApp:
     def __init__(self):
-        # قائمة افتراضية للطلاب (يمكن لاحقاً ربطها بقاعدة بيانات)
+        # قائمة افتراضية للطلاب
         self.students = [
             {"name": "أحمد محمد", "score": 0, "present": True},
             {"name": "سعيد علي", "score": 0, "present": True},
             {"name": "خالد يوسف", "score": 0, "present": True},
         ]
 
-    def main(self, page: ft.Page):
+    def build_ui(self, page: ft.Page):
+        # هذه الدالة تحتوي على كود الواجهة الأصلي الخاص بك
         page.title = "سجل المتابعة الصفي"
-        page.rtl = True  # تفعيل الاتجاه من اليمين لليسار
+        page.rtl = True
         page.theme_mode = ft.ThemeMode.LIGHT
         page.scroll = "adaptive"
-        page.window_width = 400  # محاكاة عرض الهاتف
+        page.window_width = 400
         page.window_height = 700
 
-        # حقل إدخال اسم طالب جديد
         new_student_name = ft.TextField(hint_text="اسم الطالب الجديد", expand=True)
 
+        students_column = ft.Column()
+
         def render_students():
-            # تنظيف القائمة قبل إعادة الرسم
             students_column.controls.clear()
-            
             for i, student in enumerate(self.students):
-                
-                # تعريف عناصر التحكم لكل طالب
                 score_text = ft.Text(f"النقاط: {student['score']}", size=16, weight="bold")
-                
                 status_icon = ft.Icon(
                     name=ft.icons.CHECK_CIRCLE if student['present'] else ft.icons.CANCEL,
                     color="green" if student['present'] else "red"
                 )
                 
-                # دالة لزيادة النقاط (تستخدم i الحالية عبر الـ closure)
                 def add_points(e, idx=i):
                     self.students[idx]['score'] += 1
                     render_students()
                     page.update()
 
-                # دالة لخصم النقاط
                 def remove_points(e, idx=i):
                     self.students[idx]['score'] -= 1
                     render_students()
                     page.update()
 
-                # دالة تبديل الحضور والغياب
                 def toggle_attendance(e, idx=i):
                     self.students[idx]['present'] = not self.students[idx]['present']
                     render_students()
                     page.update()
 
-                # تصميم بطاقة الطالب
                 card = ft.Card(
                     content=ft.Container(
                         padding=10,
@@ -67,19 +61,15 @@ class StudentApp:
                             ft.Row([
                                 score_text,
                                 ft.Spacer(),
-                                ft.IconButton(ft.icons.THUMB_UP, icon_color="blue", on_click=add_points, tooltip="سلوك إيجابي"),
-                                ft.IconButton(ft.icons.THUMB_DOWN, icon_color="orange", on_click=remove_points, tooltip="سلوك سلبي"),
-                                ft.IconButton(ft.icons.CHANGE_CIRCLE, icon_color="grey", on_click=toggle_attendance, tooltip="حضور/غياب"),
+                                ft.IconButton(ft.icons.THUMB_UP, icon_color="blue", on_click=add_points),
+                                ft.IconButton(ft.icons.THUMB_DOWN, icon_color="orange", on_click=remove_points),
+                                ft.IconButton(ft.icons.CHANGE_CIRCLE, icon_color="grey", on_click=toggle_attendance),
                             ])
                         ])
                     )
                 )
                 students_column.controls.append(card)
 
-        # تعريف عمود الطلاب
-        students_column = ft.Column()
-
-        # دالة إضافة طالب جديد
         def add_student(e):
             if new_student_name.value:
                 self.students.append({"name": new_student_name.value, "score": 0, "present": True})
@@ -87,10 +77,8 @@ class StudentApp:
                 render_students()
                 page.update()
 
-        # استدعاء أولي للعرض
         render_students()
 
-        # تصميم الرأس وإضافة العناصر للصفحة
         header = ft.AppBar(
             title=ft.Text("نظام متابعة الطلاب"),
             center_title=True,
@@ -104,6 +92,29 @@ class StudentApp:
         ])
 
         page.add(header, input_row, students_column)
+
+    def main(self, page: ft.Page):
+        # --- نظام الحماية من الشاشة البيضاء ---
+        try:
+            # نحاول تشغيل الواجهة
+            self.build_ui(page)
+        except Exception as e:
+            # إذا حدث أي خطأ، نعرضه على الشاشة بدلاً من البياض
+            page.clean()
+            page.add(
+                ft.Column([
+                    ft.Icon(ft.icons.ERROR, color="red", size=50),
+                    ft.Text("حدث خطأ أثناء التشغيل:", size=20, weight="bold", color="red"),
+                    ft.Text(f"{e}", size=16),
+                    ft.Container(
+                        content=ft.Text(traceback.format_exc(), size=12, font_family="monospace"),
+                        bgcolor=ft.colors.GREY_200,
+                        padding=10,
+                        border_radius=5
+                    )
+                ], scroll="adaptive")
+            )
+            page.update()
 
 # تشغيل التطبيق
 if __name__ == "__main__":
