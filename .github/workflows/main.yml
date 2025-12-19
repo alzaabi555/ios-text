@@ -26,24 +26,16 @@ jobs:
       - name: Install CocoaPods
         run: sudo gem install cocoapods
 
-      - name: Prepare Project & Generate iOS Files
-        # التعديل الهام هنا:
-        # 1. ننشئ المشروع
-        # 2. ننقل الملفات
-        # 3. نجبر فلاتر على إنشاء مجلد ios فوراً باستخدام flutter create
+      - name: Generate Flet Project (The Correct Way)
+        # هذا هو التعديل الجوهري:
+        # نستخدم flet build مع خيار --project لتوليد ملفات الايفون الصحيحة
+        # التي تحتوي على كود البايثون الخاص بك
+        # ونضعها في مجلد اسمه build_env
         run: |
-          flet create build_env
-          cp main.py build_env/
-          if [ -f requirements.txt ]; then cp requirements.txt build_env/; fi
-          
-          # الدخول للمجلد
-          cd build_env
-          
-          # هذا الأمر هو الحل: إنشاء ملفات الايفون الآن
-          flutter create . --platforms ios
+          flet build ipa --project build_env --verbose
 
       - name: Disable Code Signing in Xcode Project
-        # الآن المجلد موجود بالتأكيد، ويمكننا تعديله
+        # الآن ندخل للمجلد الذي أنشأه Flet ونلغي التوقيع
         run: |
           cd build_env/ios
           sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj
@@ -51,6 +43,7 @@ jobs:
           sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
 
       - name: Build IPA Manually
+        # نقوم بالبناء اليدوي للتأكد من عدم طلب الشهادات
         run: |
           cd build_env
           flutter build ios --release --no-codesign
@@ -58,8 +51,11 @@ jobs:
       - name: Package IPA
         run: |
           mkdir Payload
-          # نقل التطبيق الناتج
-          mv build_env/build/ios/iphoneos/Runner.app Payload/
+          # البحث عن التطبيق الناتج
+          APP_PATH=$(find build_env/build/ios/iphoneos -name "Runner.app" -type d | head -n 1)
+          echo "Found App at: $APP_PATH"
+          
+          mv "$APP_PATH" Payload/
           zip -r StudentApp.ipa Payload
 
       - name: Upload IPA
