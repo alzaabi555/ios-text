@@ -26,34 +26,29 @@ jobs:
       - name: Install CocoaPods
         run: sudo gem install cocoapods
 
-      - name: Generate Flutter Project Only
-        # هنا التعديل: نطلب منه إنشاء ملفات المشروع فقط دون محاولة البناء
-        # هذا سينتج مجلداً اسمه build/ipa
-        run: flet build ipa --project
-
-      - name: Disable Code Signing Manually
-        # الآن ندخل لملفات المشروع ونعطل التوقيع بالقوة
+      - name: Build IPA (Fixed Command)
+        # الإصلاح: أضفنا اسماً للمشروع (MyStudentApp) واستخدمنا الطريقة الصحيحة لتمرير أمر عدم التوقيع
         run: |
-          cd build/ipa/ios
-          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
+          flet build ipa --project MyStudentApp --flutter-build-args --no-codesign --verbose
 
-      - name: Build IPA Manually
-        # الآن نبني التطبيق يدوياً باستخدام فلاتر مباشرة
-        run: |
-          cd build/ipa
-          flutter build ios --release --no-codesign
-
-      - name: Package IPA
-        # تجميع الناتج
+      - name: Locate and Package IPA
+        # البحث عن الملف الناتج وضغطه
         run: |
           mkdir Payload
-          # نبحث عن التطبيق داخل مجلد البناء الجديد
-          APP_PATH=$(find build/ipa/build/ios/iphoneos -name "Runner.app" -type d | head -n 1)
+          # نبحث عن ملف التطبيق الناتج أينما كان
+          APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: Runner.app not found!"
+            exit 1
+          fi
+          
           echo "Found App at: $APP_PATH"
           
+          # نسخ التطبيق للمجلد الجديد
           cp -r "$APP_PATH" Payload/
+          
+          # ضغطه بصيغة ipa
           zip -r StudentApp.ipa Payload
 
       - name: Upload IPA
