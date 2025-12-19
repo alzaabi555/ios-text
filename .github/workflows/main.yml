@@ -18,17 +18,17 @@ jobs:
         run: pip install flet
 
       - name: Setup Flutter
+        # قمنا بتحديث النسخة إلى 3.24.0 لتتوافق مع أحدث إصدارات Flet
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          flutter-version: '3.24.0'
           channel: 'stable'
       
       - name: Install CocoaPods
         run: sudo gem install cocoapods
 
-      - name: Create Complete Requirements File
-        # هنا الحل: أضفنا كل المكتبات التي قد يحتاجها التطبيق ليعمل
-        # إضافة typing_extensions و requests تحل مشكلة الشاشة البيضاء
+      - name: Create Requirements File
+        # إضافة مكتبات النظام الضرورية جداً لتجنب الشاشة البيضاء
         run: |
           echo "flet" > requirements.txt
           echo "certifi" >> requirements.txt
@@ -36,16 +36,17 @@ jobs:
           echo "urllib3" >> requirements.txt
           echo "requests" >> requirements.txt
           echo "packaging" >> requirements.txt
+          echo "charset-normalizer" >> requirements.txt
+          echo "idna" >> requirements.txt
 
-      - name: Build IPA (Safe Mode)
-        # نستخدم البناء مع إجبار فلاتر على عدم التوقيع
+      - name: Build IPA (Verbose Mode)
+        # --verbose يساعد في طباعة الأخطاء لو حدثت أثناء البناء
         run: |
           flet build ipa . --project StudentApp --flutter-build-args="--no-codesign" --verbose
 
       - name: Locate and Package IPA
         run: |
           mkdir Payload
-          # البحث عن ملف التطبيق الناتج
           APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
@@ -54,8 +55,6 @@ jobs:
           fi
           
           echo "Found App at: $APP_PATH"
-          
-          # نسخ التطبيق وضغطه
           cp -r "$APP_PATH" Payload/
           zip -r StudentApp.ipa Payload
 
