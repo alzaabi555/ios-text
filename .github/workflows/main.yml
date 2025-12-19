@@ -26,22 +26,26 @@ jobs:
       - name: Install CocoaPods
         run: sudo gem install cocoapods
 
-      - name: Create Requirements File
-        # هذه الخطوة الجديدة:
-        # نقوم بإنشاء ملف متطلبات ونضع فيه المكتبات الضرورية
-        # certifi هي المكتبة التي تسبب الخطأ، أضفناها الآن يدوياً
+      - name: Create Complete Requirements File
+        # هنا الحل: أضفنا كل المكتبات التي قد يحتاجها التطبيق ليعمل
+        # إضافة typing_extensions و requests تحل مشكلة الشاشة البيضاء
         run: |
           echo "flet" > requirements.txt
           echo "certifi" >> requirements.txt
+          echo "typing_extensions" >> requirements.txt
+          echo "urllib3" >> requirements.txt
+          echo "requests" >> requirements.txt
+          echo "packaging" >> requirements.txt
 
-      - name: Build IPA (With Requirements)
-        # الآن عند البناء، سيجد Flet ملف requirements.txt ويقوم بتضمين المكتبات
+      - name: Build IPA (Safe Mode)
+        # نستخدم البناء مع إجبار فلاتر على عدم التوقيع
         run: |
           flet build ipa . --project StudentApp --flutter-build-args="--no-codesign" --verbose
 
       - name: Locate and Package IPA
         run: |
           mkdir Payload
+          # البحث عن ملف التطبيق الناتج
           APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
@@ -51,6 +55,7 @@ jobs:
           
           echo "Found App at: $APP_PATH"
           
+          # نسخ التطبيق وضغطه
           cp -r "$APP_PATH" Payload/
           zip -r StudentApp.ipa Payload
 
