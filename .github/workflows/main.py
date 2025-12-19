@@ -1,4 +1,6 @@
-import flet as ft  # <--- هذا هو السطر الذي كان ناقصاً
+import flet as ft
+import certifi # تأكد أنك لا تستدعي مكتبات غريبة
+import os 
 
 class StudentApp:
     def __init__(self):
@@ -109,3 +111,4 @@ class StudentApp:
 if __name__ == "__main__":
     app = StudentApp()
     ft.app(target=app.main)
+
