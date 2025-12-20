@@ -1,4 +1,4 @@
-name: Build Android APK (Manual Main Fix)
+name: Build Android APK (Final Lib Fix)
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # نستخدم Flutter 3.16.9 لتجنب الشاشة البيضاء
+      # Flutter 3.16.9 (لا شاشة بيضاء)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -41,7 +41,7 @@ jobs:
           echo "idna" >> requirements.txt
           echo "openpyxl" >> requirements.txt
 
-      - name: Prepare Project Structure
+      - name: Prepare Project (Manual Build)
         run: |
           mkdir app_build
           cp main.py app_build/
@@ -52,17 +52,21 @@ jobs:
           
           cd app_build
           
-          # 1. إنشاء هيكل مشروع فلاتر
+          # 1. إنشاء المشروع
           flutter create . --platforms android --org com.schoolapp --project-name student_app
           
           # 2. حذف الكود الافتراضي
           rm lib/main.dart
 
-          # 3. تجهيز أصول Flet
+          # 3. دمج كود بايثون
           flet create . --description "المتابع المدرسي"
 
-      - name: CREATE MISSING MAIN.DART (The Fix)
-        # هنا نقوم بإنشاء الملف المفقود يدوياً
+          # 4. (الخطوة الجديدة والهامة) إضافة مكتبة Flet للمشروع يدوياً
+          # نستخدم نفس إصدار البايثون لضمان التوافق
+          flutter pub add flet:0.21.2
+          flutter pub get
+
+      - name: CREATE MISSING MAIN.DART
         run: |
           cd app_build/lib
           cat <<EOF > main.dart
@@ -77,7 +81,7 @@ jobs:
           echo "main.dart created successfully ✅"
 
       - name: FIX ANDROID SDK VERSION
-        # رفع إصدار SDK إلى 34 لإرضاء المكتبات الحديثة
+        # رفع الإصدار إلى 34 لحل مشاكل التوافق
         run: |
           cd app_build/android/app
           sed -i 's/compileSdkVersion .*/compileSdkVersion 34/g' build.gradle
