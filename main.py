@@ -2,6 +2,7 @@ import flet as ft
 import openpyxl
 import csv
 import datetime
+import codecs
 
 # --- إعدادات ثابتة ---
 POSITIVE_BEHAVIORS = ["مشاركة فعالة", "حل الواجب", "احترام المعلم", "نظافة", "تعاون", "إجابة ذكية"]
@@ -11,21 +12,21 @@ class SchoolApp:
     def __init__(self):
         self.school_data = {}
         self.current_class = ""
-        self.current_student_idx = None # لتتبع الطالب المختار
         self.selected_date = datetime.date.today().strftime("%Y-%m-%d")
 
     def main(self, page: ft.Page):
-        # العنوان الجديد كما طلبت
+        # العنوان الصحيح
         page.title = "ضبط سلوكيات الطلبة"
         page.rtl = True
         page.theme_mode = ft.ThemeMode.LIGHT
         page.scroll = None 
         page.bgcolor = "#f5f5f7"
 
-        # --- إدارة البيانات ---
+        # --- إدارة البيانات (نسخة جديدة v7 لمسح البيانات القديمة تلقائياً) ---
         def load_data():
             try:
-                data = page.client_storage.get("school_db_v6")
+                # غيرنا الاسم لـ v7 لنسيان البيانات الخربة السابقة
+                data = page.client_storage.get("school_db_v7")
                 if isinstance(data, dict):
                     self.school_data = data
                 else:
@@ -34,11 +35,11 @@ class SchoolApp:
                 self.school_data = {}
 
         def save_data():
-            page.client_storage.set("school_db_v6", self.school_data)
+            page.client_storage.set("school_db_v7", self.school_data)
 
         load_data()
 
-        # --- عناصر الواجهة المشتركة ---
+        # --- عناصر الواجهة ---
         txt_class_name = ft.TextField(hint_text="اسم الفصل", bgcolor="white", border_radius=10, expand=True)
         txt_student_name = ft.TextField(hint_text="اسم الطالب", bgcolor="white", border_radius=10, expand=True)
         
@@ -88,7 +89,7 @@ class SchoolApp:
             dlg.open = True
             page.update()
 
-        # --- دالة الاستيراد (الحل النهائي للأسماء) ---
+        # --- دالة الاستيراد (الإصلاح الجذري للترميز) ---
         file_picker = ft.FilePicker()
         page.overlay.append(file_picker)
 
@@ -105,29 +106,27 @@ class SchoolApp:
                     for row in sheet.iter_rows(values_only=True):
                         raw_rows.append([str(c) if c else "" for c in row])
                 
-                # 2. معالجة CSV (القوة الغاشمة لكشف الترميز)
+                # 2. معالجة CSV (إجبار الترميز العربي)
                 elif e.files[0].name.endswith('.csv'):
-                    # قائمة بكل الترميزات العربية المحتملة
-                    encodings_to_try = ['utf-8-sig', 'cp1256', 'windows-1256', 'iso-8859-6', 'utf-8']
-                    success = False
+                    # سنقرأ الملف كـ بايت أولاً
+                    with open(file_path, 'rb') as f:
+                        bytes_content = f.read()
                     
-                    for enc in encodings_to_try:
+                    decoded_content = ""
+                    # المحاولة الأولى: Windows-1256 (الأكثر شيوعاً في الملفات العربية الخربة)
+                    try:
+                        decoded_content = bytes_content.decode('cp1256')
+                    except:
+                        # المحاولة الثانية: UTF-8
                         try:
-                            with open(file_path, 'r', encoding=enc) as f:
-                                temp_rows = list(csv.reader(f))
-                                # اختبار: هل نرى حروفاً عربية؟
-                                text_sample = str(temp_rows)
-                                if any("\u0600" <= c <= "\u06FF" for c in text_sample):
-                                    raw_rows = temp_rows
-                                    success = True
-                                    break # وجدنا الترميز الصحيح!
+                            decoded_content = bytes_content.decode('utf-8-sig')
                         except:
-                            continue
-                    
-                    if not success:
-                         # محاولة أخيرة: القراءة كـ ASCII وتجاهل الأخطاء (أحياناً يحل المشكلة)
-                         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                             raw_rows = list(csv.reader(f))
+                            # المحاولة الثالثة: ISO
+                            decoded_content = bytes_content.decode('iso-8859-6', errors='ignore')
+
+                    # تحويل النص المقروء إلى قائمة
+                    f_io = io.StringIO(decoded_content)
+                    raw_rows = list(csv.reader(f_io))
 
                 # إضافة الأسماء
                 count = 0
@@ -137,8 +136,7 @@ class SchoolApp:
                 for row in raw_rows:
                     for cell in row:
                         val = str(cell).strip()
-                        # تنظيف النص: إزالة الرموز الغريبة والإبقاء على الحروف والأرقام
-                        # هذا السطر ينظف أي "شخابيط" تبقت
+                        # تنظيف دقيق جداً: يقبل الحروف العربية والإنجليزية والمسافات فقط
                         cleaned_val = "".join([c for c in val if c.isalnum() or c.isspace()])
                         
                         if len(cleaned_val) > 2 and not cleaned_val.isdigit() and "اسم" not in cleaned_val:
@@ -179,7 +177,7 @@ class SchoolApp:
             page.snack_bar.open = True
             page.update()
 
-        # --- صفحة تفاصيل الطالب (مع إصلاح زر الرجوع) ---
+        # --- صفحة تفاصيل الطالب ---
         def show_student_details(student):
             
             attendance_log = student.get('attendance', {})
@@ -215,7 +213,7 @@ class SchoolApp:
                         ft.AppBar(
                             title=ft.Text(student['name']), 
                             bgcolor="indigo", color="white",
-                            # إصلاح زر الرجوع: الآن يعيدنا للفصل
+                            # زر الرجوع الصحيح
                             leading=ft.IconButton(ft.icons.ARROW_BACK, on_click=lambda _: page.go("/class"))
                         ),
                         ft.Container(
@@ -283,9 +281,9 @@ class SchoolApp:
                 page.views.append(
                     ft.View("/", [
                         ft.AppBar(
-                            title=ft.Text("ضبط سلوكيات الطلبة"), # العنوان الجديد
+                            title=ft.Text("ضبط سلوكيات الطلبة"),
                             bgcolor="indigo", color="white", 
-                            leading=ft.IconButton(ft.icons.INFO_OUTLINE, tooltip="معلومات", on_click=show_info_dialog), # زر الهوية
+                            leading=ft.IconButton(ft.icons.INFO_OUTLINE, tooltip="معلومات", on_click=show_info_dialog),
                             actions=[ft.IconButton(ft.icons.DELETE_FOREVER, tooltip="تصفير", on_click=clear_all)]
                         ),
                         ft.Container(padding=10, bgcolor="white", content=ft.Row([txt_class_name, ft.FloatingActionButton(icon=ft.icons.ADD, on_click=add_class)])),
@@ -348,7 +346,7 @@ class SchoolApp:
                                 title=ft.Text(s['name'], weight="bold"),
                                 subtitle=ft.Text(f"النقاط: {s['score']}", color="blue"),
                                 trailing=ft.IconButton(ft.icons.ADD_COMMENT, icon_color="orange", on_click=lambda e, stu=s: open_behavior_dialog(stu)),
-                                on_click=lambda e, stu=s: show_student_details(stu) # الذهاب للتفاصيل
+                                on_click=lambda e, stu=s: show_student_details(s)
                             )
                         )
                     )
@@ -358,7 +356,6 @@ class SchoolApp:
                         ft.AppBar(
                             title=ft.Text(self.current_class), bgcolor="indigo", color="white",
                             leading=ft.IconButton(ft.icons.ARROW_BACK, on_click=lambda _: page.go("/")),
-                            # زر التصدير عاد هنا
                             actions=[
                                 ft.IconButton(ft.icons.COPY, tooltip="نسخ البيانات", on_click=export_data),
                                 ft.IconButton(ft.icons.UPLOAD_FILE, tooltip="استيراد", on_click=lambda _: file_picker.pick_files())
