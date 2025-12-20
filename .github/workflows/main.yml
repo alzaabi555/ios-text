@@ -15,7 +15,6 @@ jobs:
           python-version: '3.11'
 
       - name: Install Flet
-        # نستخدم النسخة المستقرة
         run: pip install flet==0.22.1
 
       - name: Setup Flutter
@@ -28,7 +27,8 @@ jobs:
         run: sudo gem install cocoapods
 
       - name: Create Requirements File
-        # هذه الخطوة تضمن تحميل pandas و excel
+        # التعديل هنا: حذفنا pandas وأبقينا openpyxl فقط
+        # openpyxl خفيفة وتعمل على الايفون بدون مشاكل
         run: |
           echo "flet==0.22.1" > requirements.txt
           echo "certifi" >> requirements.txt
@@ -37,19 +37,15 @@ jobs:
           echo "requests" >> requirements.txt
           echo "charset-normalizer" >> requirements.txt
           echo "idna" >> requirements.txt
-          echo "pandas" >> requirements.txt
           echo "openpyxl" >> requirements.txt
 
-      - name: Build IPA (Auto Mode with Pandas)
-        # نستخدم البناء التلقائي لأنه الوحيد الذي يجهز مكتبة pandas للايفون بشكل صحيح
+      - name: Build IPA (Auto Mode)
+        # نستخدم البناء التلقائي
         run: |
           flet build ipa . --project StudentApp --flutter-build-args="--no-codesign" --verbose
 
       - name: FIX WHITE SCREEN (Post-Build Patch)
-        # الحل النهائي للشاشة البيضاء:
-        # نبحث عن التطبيق الناتج ونعدل إعداداته لإلغاء Impeller
         run: |
-          # 1. البحث عن التطبيق
           APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
@@ -59,13 +55,9 @@ jobs:
           
           echo "Found App at: $APP_PATH"
           
-          # 2. تعديل ملف Info.plist داخل التطبيق
           PLIST_PATH="$APP_PATH/Info.plist"
           
-          # محاولة حذف المفتاح أولاً لتجنب التكرار (تجاهل الخطأ إذا لم يكن موجوداً)
           /usr/libexec/PlistBuddy -c "Delete :FLTEnableImpeller" "$PLIST_PATH" || true
-          
-          # إضافة المفتاح لتعطيل المحرك الجديد
           /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" "$PLIST_PATH"
           
           echo "Success: Impeller disabled in Info.plist"
@@ -74,11 +66,7 @@ jobs:
         run: |
           mkdir Payload
           APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
-          
-          # نقل التطبيق للمجلد
           cp -r "$APP_PATH" Payload/
-          
-          # ضغط الملف
           zip -r StudentApp.ipa Payload
 
       - name: Upload IPA
