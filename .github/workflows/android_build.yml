@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-android:
-    runs-on: ubuntu-latest  # نستخدم لينكس لأنه أسرع للاندرويد
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
 
@@ -30,7 +30,6 @@ jobs:
           channel: 'stable'
 
       - name: Create Requirements File
-        # نفس المكتبات تماماً
         run: |
           echo "flet==0.22.1" > requirements.txt
           echo "certifi" >> requirements.txt
@@ -42,7 +41,6 @@ jobs:
           echo "openpyxl" >> requirements.txt
 
       - name: Prepare Icon
-        # التأكد من وجود الأيقونة
         run: |
           if [ -f "icon.png" ]; then
             echo "Icon found! ✅"
@@ -53,13 +51,33 @@ jobs:
           fi
 
       - name: Build APK
-        # الأمر هنا أبسط بكثير من الايفون
-        # --product يحدد اسم التطبيق بالعربي
+        # بناء التطبيق
         run: |
           flet build apk . --project StudentApp --product "المتابع المدرسي" --verbose
+
+      - name: Find and Rename APK
+        # الخطوة الجديدة: البحث عن الملف أينما كان
+        run: |
+          # البحث عن أي ملف APK
+          APK_PATH=$(find . -name "*.apk" | grep "release" | head -n 1)
+          
+          if [ -z "$APK_PATH" ]; then
+            # محاولة ثانية بحث عام
+            APK_PATH=$(find . -name "*.apk" | head -n 1)
+          fi
+
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: APK file not found!"
+            exit 1
+          fi
+
+          echo "Found APK at: $APK_PATH"
+          # تغيير اسمه ليكون سهلاً
+          mv "$APK_PATH" StudentApp.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: StudentApp-Android
-          path: build/app/outputs/flutter-apk/app-release.apk
+          # الآن نرفع الملف الذي وجدناه وغيرنا اسمه
+          path: StudentApp.apk
