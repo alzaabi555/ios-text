@@ -15,7 +15,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Flet
-        # نستخدم نسخة 0.22.1 لأنها مستقرة جداً وتدعم الايفون جيداً
+        # نسخة مستقرة
         run: pip install flet==0.22.1
 
       - name: Setup Flutter
@@ -37,12 +37,11 @@ jobs:
           echo "charset-normalizer" >> requirements.txt
           echo "idna" >> requirements.txt
 
-      - name: Manual Project Generation
-        # هنا التغيير الجذري:
-        # 1. ننشئ المجلد بأنفسنا
-        # 2. ننسخ الملفات
-        # 3. نستخدم flet create لإنشاء كود بايثون
-        # 4. نستخدم flutter create لإنشاء مجلدات الايفون (ios) إجبارياً
+      - name: Prepare Project (The Fix)
+        # 1. ننشئ المجلد
+        # 2. ننشئ هيكل فلاتر (الذي يحتوي على العداد ومجلد ios)
+        # 3. نحذف كود العداد
+        # 4. نضع كود Flet مكانه
         run: |
           mkdir app_build
           cp main.py app_build/
@@ -50,24 +49,27 @@ jobs:
           
           cd app_build
           
-          # تصحيح تلقائي لكودك: حذف كلمة "adaptive" إذا كانت موجودة لمنع الأخطاء
-          sed -i '' 's/page.scroll = "adaptive"/page.scroll = "auto"/g' main.py || true
+          # الخطوة أ: إنشاء مجلدات الايفون (سيظهر العداد هنا)
+          flutter create . --platforms ios --org com.studentapp
           
-          # إنشاء المشروع
+          # الخطوة ب: حذف العداد الافتراضي
+          rm lib/main.dart
+          
+          # الخطوة ج: وضع كود Flet مكانه (هذا يعيد تطبيقك)
           flet create .
           
-          # إجبار النظام على إنشاء مجلد ios الآن
-          flutter create . --platforms ios
+          # الخطوة د: تصحيح كودك تلقائياً (إزالة adaptive لتجنب المشاكل)
+          sed -i '' 's/page.scroll = "adaptive"/page.scroll = "auto"/g' main.py || true
 
-      - name: DISABLE IMPELLER (Now Guaranteed)
-        # الآن نحن متأكدون 100% أن المجلد موجود
+      - name: DISABLE IMPELLER (Fix White Screen)
+        # الآن المجلد موجود 100% لأننا أنشأناه في الخطوة السابقة
         run: |
           cd app_build/ios/Runner
           
-          # إضافة مفتاح تعطيل Impeller
+          # إضافة مفتاح تعطيل الشاشة البيضاء
           /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" Info.plist
           
-          echo "Impeller Disabled Successfully."
+          echo "Done: Impeller Disabled."
 
       - name: Disable Code Signing
         run: |
