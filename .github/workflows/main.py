@@ -68,21 +68,16 @@ class SchoolApp:
                     file_path = e.files[0].path
                     file_name = e.files[0].name
                     added_count = 0
-
-                    # قائمة لتخزين البيانات المقروءة (صف بصف)
                     raw_data = []
 
-                    # 1. قراءة الملف حسب نوعه بدون استخدام pandas
                     if file_name.endswith(('.xlsx', '.xls')):
-                        # قراءة Excel باستخدام openpyxl
                         wb = openpyxl.load_workbook(file_path, data_only=True)
                         sheet = wb.active
                         rows = list(sheet.iter_rows(values_only=True))
                         if rows:
-                            headers = [str(h).strip() for h in rows[0]] # الصف الأول عناوين
+                            headers = [str(h).strip() for h in rows[0]]
                             for row in rows[1:]:
-                                if row: # تجاهل الصفوف الفارغة
-                                    # تحويل الصف إلى قاموس
+                                if row:
                                     row_dict = {}
                                     for i, header in enumerate(headers):
                                         if i < len(row):
@@ -90,50 +85,31 @@ class SchoolApp:
                                     raw_data.append(row_dict)
 
                     elif file_name.endswith('.csv'):
-                        # قراءة CSV باستخدام مكتبة csv القياسية
                         with open(file_path, mode='r', encoding='utf-8-sig') as f:
                             reader = csv.DictReader(f)
                             for row in reader:
-                                # تنظيف المفاتيح من المسافات
                                 clean_row = {k.strip(): v for k, v in row.items() if k}
                                 raw_data.append(clean_row)
                     else:
                         raise Exception("صيغة غير مدعومة")
 
-                    # 2. معالجة البيانات وإضافتها
                     for row in raw_data:
-                        # البحث عن اسم العمود المحتمل
                         c_name = None
                         s_name = None
-                        
-                        # احتمالات أسماء الأعمدة
                         for key in row.keys():
                             if not key: continue
                             k_lower = str(key).lower()
-                            if "فصل" in k_lower or "class" in k_lower:
-                                c_name = row[key]
-                            elif "طالب" in k_lower or "اسم" in k_lower or "student" in k_lower or "name" in k_lower:
-                                s_name = row[key]
+                            if "فصل" in k_lower or "class" in k_lower: c_name = row[key]
+                            elif "طالب" in k_lower or "اسم" in k_lower or "student" in k_lower or "name" in k_lower: s_name = row[key]
 
-                        # تعيين قيم افتراضية إذا لم يتم العثور
                         if not c_name: c_name = "فصل عام"
-                        
                         class_name = str(c_name).strip()
                         student_name = str(s_name).strip() if s_name else ""
 
                         if class_name and student_name and student_name.lower() != "none":
-                            if class_name not in self.school_data:
-                                self.school_data[class_name] = []
-                            
-                            # منع التكرار
+                            if class_name not in self.school_data: self.school_data[class_name] = []
                             if not any(s['name'] == student_name for s in self.school_data[class_name]):
-                                new_student = {
-                                    "name": student_name,
-                                    "score": 0,
-                                    "positive_notes": [],
-                                    "negative_notes": [],
-                                    "present": True
-                                }
+                                new_student = {"name": student_name, "score": 0, "positive_notes": [], "negative_notes": [], "present": True}
                                 self.school_data[class_name].append(new_student)
                                 added_count += 1
                     
@@ -163,13 +139,7 @@ class SchoolApp:
                 for student in students:
                     pos_str = " | ".join(student.get('positive_notes', []))
                     neg_str = " | ".join(student.get('negative_notes', []))
-                    writer.writerow([
-                        class_name,
-                        student['name'],
-                        student['score'],
-                        pos_str,
-                        neg_str
-                    ])
+                    writer.writerow([class_name, student['name'], student['score'], pos_str, neg_str])
             
             csv_data = output.getvalue().encode("utf-8-sig")
             b64_data = base64.b64encode(csv_data).decode()
@@ -180,20 +150,12 @@ class SchoolApp:
             if "positive_notes" not in student: student["positive_notes"] = []
             if "negative_notes" not in student: student["negative_notes"] = []
 
-            pos_checks = []
-            for note in POSITIVE_BEHAVIORS:
-                is_checked = note in student["positive_notes"]
-                pos_checks.append(ft.Checkbox(label=note, value=is_checked))
-
-            neg_checks = []
-            for note in NEGATIVE_BEHAVIORS:
-                is_checked = note in student["negative_notes"]
-                neg_checks.append(ft.Checkbox(label=note, value=is_checked, fill_color="red"))
+            pos_checks = [ft.Checkbox(label=note, value=note in student["positive_notes"]) for note in POSITIVE_BEHAVIORS]
+            neg_checks = [ft.Checkbox(label=note, value=note in student["negative_notes"], fill_color="red") for note in NEGATIVE_BEHAVIORS]
 
             def save_card_changes(e):
                 selected_pos = [c.label for c in pos_checks if c.value]
                 selected_neg = [c.label for c in neg_checks if c.value]
-
                 old_score_impact = len(student["positive_notes"]) - len(student["negative_notes"])
                 new_score_impact = len(selected_pos) - len(selected_neg)
                 score_diff = new_score_impact - old_score_impact
@@ -244,7 +206,7 @@ class SchoolApp:
                 content=ft.Column([
                     ft.ListTile(leading=ft.Icon(ft.icons.PERSON), title=ft.Text("المعلم"), subtitle=ft.Text("محمد درويش الزعابي")),
                     ft.ListTile(leading=ft.Icon(ft.icons.SCHOOL), title=ft.Text("المدرسة"), subtitle=ft.Text("الإبداع للبنين")),
-                    ft.ListTile(leading=ft.Icon(ft.icons.INFO), title=ft.Text("الإصدار"), subtitle=ft.Text("3.0 (Lite Edition)")),
+                    ft.ListTile(leading=ft.Icon(ft.icons.INFO), title=ft.Text("الإصدار"), subtitle=ft.Text("3.1 (Excel Edition)")),
                 ], tight=True),
                 actions=[ft.TextButton("إغلاق", on_click=lambda e: page.close_dialog())]
             )
@@ -291,6 +253,8 @@ class SchoolApp:
         def show_classes_view():
             self.current_class = None
             main_list.controls.clear()
+            # هنا كان الخطأ: لا يمكن تعديل العنوان إذا لم يكن موجوداً
+            # الآن أصبح آمناً لأننا أنشأنا عنواناً فارغاً في البداية
             page.appbar.title.value = "الرئيسية"
             page.appbar.leading = ft.IconButton(ft.icons.INFO_OUTLINE, on_click=show_info_dialog)
             page.appbar.actions = [
@@ -350,7 +314,9 @@ class SchoolApp:
             show_students_view(class_name)
 
         load_data()
-        page.appbar = ft.AppBar(bgcolor="indigo", color="white")
+        # --- التصحيح هنا ---
+        # أضفنا title=ft.Text("") ليتمكن البرنامج من تغييره لاحقاً
+        page.appbar = ft.AppBar(title=ft.Text(""), bgcolor="indigo", color="white")
         page.add(main_list)
         show_classes_view()
 
