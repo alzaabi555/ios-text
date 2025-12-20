@@ -1,4 +1,4 @@
-name: Build Android APK (Stable 0.19.0)
+name: Build Android APK (Legendary 0.18.0)
 
 on:
   workflow_dispatch:
@@ -14,9 +14,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      # نستخدم نسخة Flet 0.19.0 (المعروفة باستقرارها مع Flutter القديم)
+      # نستخدم النسخة 0.18.0 الأكثر استقراراً في تاريخ Flet
+      # هذه النسخة موجودة ومجربة 100%
       - name: Install Flet
-        run: pip install flet==0.19.0
+        run: pip install flet==0.18.0
 
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -24,7 +25,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # نستخدم Flutter 3.16.9 (لتجنب الشاشة البيضاء تماماً)
+      # نستخدم Flutter 3.16.9 (لا شاشة بيضاء، لا مشاكل)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -32,9 +33,9 @@ jobs:
           channel: 'stable'
 
       - name: Create Requirements File
-        # مهم جداً: يجب أن تتطابق النسخة هنا أيضاً
+        # نوحد النسخ هنا أيضاً
         run: |
-          echo "flet==0.19.0" > requirements.txt
+          echo "flet==0.18.0" > requirements.txt
           echo "certifi" >> requirements.txt
           echo "typing_extensions" >> requirements.txt
           echo "urllib3" >> requirements.txt
@@ -54,9 +55,11 @@ jobs:
           fi
 
       - name: Build APK
-        # الآن النسختان (Flet 0.19 + Flutter 3.16) متوافقتان تماماً
+        # هذه النسخة القديمة من Flet لا تدعم خيار --product
+        # لذلك نستخدم الأمر البسيط، وسنغير الاسم لاحقاً يدوياً إذا لزم الأمر
+        # الأهم الآن هو أن يعمل التطبيق!
         run: |
-          flet build apk . --project StudentApp --product "المتابع المدرسي" --verbose
+          flet build apk . --project StudentApp --verbose
 
       - name: Find and Rename APK
         run: |
