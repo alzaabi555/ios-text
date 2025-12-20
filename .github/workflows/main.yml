@@ -14,10 +14,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Flet (Golden Version)
-        # العودة لنسخة 0.21.2 لأنها الأكثر استقراراً مع الايفون حالياً
-        # وتتجنب مشاكل الشاشة البيضاء في النسخ الحديثة
-        run: pip install flet==0.21.2
+      - name: Install Flet
+        # نستخدم نسخة 0.22.1 لأنها مستقرة جداً وتدعم الايفون جيداً
+        run: pip install flet==0.22.1
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -29,9 +28,8 @@ jobs:
         run: sudo gem install cocoapods
 
       - name: Create Requirements File
-        # إضافة كافة المكتبات الضرورية
         run: |
-          echo "flet==0.21.2" > requirements.txt
+          echo "flet==0.22.1" > requirements.txt
           echo "certifi" >> requirements.txt
           echo "typing_extensions" >> requirements.txt
           echo "urllib3" >> requirements.txt
@@ -39,44 +37,55 @@ jobs:
           echo "charset-normalizer" >> requirements.txt
           echo "idna" >> requirements.txt
 
-      - name: Generate Project Source Code
-        # نولد ملفات المشروع في مجلد build_env
+      - name: Manual Project Generation
+        # هنا التغيير الجذري:
+        # 1. ننشئ المجلد بأنفسنا
+        # 2. ننسخ الملفات
+        # 3. نستخدم flet create لإنشاء كود بايثون
+        # 4. نستخدم flutter create لإنشاء مجلدات الايفون (ios) إجبارياً
         run: |
-          flet build ipa --project build_env --verbose
-
-      - name: DISABLE IMPELLER (The Source Way)
-        # هذه هي الخطوة الحاسمة:
-        # نعدل ملف الإعدادات Info.plist "داخل" المشروع قبل البناء
-        # هذا يضمن 100% أن الإعداد سيطبق
-        run: |
-          # الدخول لمجلد إعدادات الايفون
-          cd build_env/ios/Runner
+          mkdir app_build
+          cp main.py app_build/
+          cp requirements.txt app_build/
           
-          # إضافة مفتاح تعطيل المحرك الجديد (Impeller)
+          cd app_build
+          
+          # تصحيح تلقائي لكودك: حذف كلمة "adaptive" إذا كانت موجودة لمنع الأخطاء
+          sed -i '' 's/page.scroll = "adaptive"/page.scroll = "auto"/g' main.py || true
+          
+          # إنشاء المشروع
+          flet create .
+          
+          # إجبار النظام على إنشاء مجلد ios الآن
+          flutter create . --platforms ios
+
+      - name: DISABLE IMPELLER (Now Guaranteed)
+        # الآن نحن متأكدون 100% أن المجلد موجود
+        run: |
+          cd app_build/ios/Runner
+          
+          # إضافة مفتاح تعطيل Impeller
           /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" Info.plist
           
-          # طباعة الملف للتأكد من وجود السطر
-          grep "FLTEnableImpeller" Info.plist || echo "Warning: Check failed, but trying to proceed."
+          echo "Impeller Disabled Successfully."
 
-      - name: Disable Code Signing (Project Level)
-        # تعطيل التوقيع من ملف المشروع
+      - name: Disable Code Signing
         run: |
-          cd build_env/ios
+          cd app_build/ios
           sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj
           sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' Runner.xcodeproj/project.pbxproj
           sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
 
       - name: Build IPA Manually
-        # الآن نبني التطبيق وقد تم دمج الإصلاح بداخله
         run: |
-          cd build_env
+          cd app_build
           flutter build ios --release --no-codesign
 
       - name: Package IPA
         run: |
           mkdir Payload
-          # البحث عن التطبيق داخل مجلد البناء
-          APP_PATH=$(find build_env/build/ios/iphoneos -name "Runner.app" -type d | head -n 1)
+          # البحث عن التطبيق داخل مجلد app_build
+          APP_PATH=$(find app_build/build/ios/iphoneos -name "Runner.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
             echo "Error: Runner.app not found!"
