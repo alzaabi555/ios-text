@@ -15,6 +15,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Flet
+        # نستخدم النسخة المستقرة
         run: pip install flet==0.22.1
 
       - name: Setup Flutter
@@ -26,8 +27,8 @@ jobs:
       - name: Install CocoaPods
         run: sudo gem install cocoapods
 
-      - name: Create Requirements File (With Excel Support)
-        # أضفنا pandas و openpyxl لحل مشكلة استيراد البيانات
+      - name: Create Requirements File
+        # هذه الخطوة تضمن تحميل pandas و excel
         run: |
           echo "flet==0.22.1" > requirements.txt
           echo "certifi" >> requirements.txt
@@ -39,61 +40,45 @@ jobs:
           echo "pandas" >> requirements.txt
           echo "openpyxl" >> requirements.txt
 
-      - name: Prepare Project (The Force Fix)
-        # هنا الحل لمشكلة "Target file not found":
-        # 1. ننشئ ملفات فلاتر (للحصول على مجلد ios)
-        # 2. نحذف ملفات فلاتر الرئيسية (main.dart و pubspec.yaml)
-        # 3. نجبر flet على إنشاء الملفات من الصفر
+      - name: Build IPA (Auto Mode with Pandas)
+        # نستخدم البناء التلقائي لأنه الوحيد الذي يجهز مكتبة pandas للايفون بشكل صحيح
         run: |
-          mkdir app_build
-          cp main.py app_build/
-          cp requirements.txt app_build/
-          
-          cd app_build
-          
-          # إنشاء مجلدات الايفون
-          flutter create . --platforms ios --org com.schoolapp
-          
-          # التنظيف الجذري (حذف أي أثر لفلاتر القديم)
-          rm lib/main.dart
-          rm pubspec.yaml
-          
-          # إنشاء كود Flet الآن (سيجد الساحة نظيفة وسينشئ الملفات المطلوبة)
-          flet create .
-          
-          # تصحيح التمرير تلقائياً
-          sed -i '' 's/page.scroll = "adaptive"/page.scroll = "auto"/g' main.py || true
+          flet build ipa . --project StudentApp --flutter-build-args="--no-codesign" --verbose
 
-      - name: DISABLE IMPELLER (Fix White Screen)
+      - name: FIX WHITE SCREEN (Post-Build Patch)
+        # الحل النهائي للشاشة البيضاء:
+        # نبحث عن التطبيق الناتج ونعدل إعداداته لإلغاء Impeller
         run: |
-          cd app_build/ios/Runner
-          /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" Info.plist
-          echo "Impeller Disabled."
-
-      - name: Disable Code Signing
-        run: |
-          cd app_build/ios
-          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
-
-      - name: Build IPA Manually
-        run: |
-          cd app_build
-          flutter build ios --release --no-codesign
-
-      - name: Package IPA
-        run: |
-          mkdir Payload
-          APP_PATH=$(find app_build/build/ios/iphoneos -name "Runner.app" -type d | head -n 1)
+          # 1. البحث عن التطبيق
+          APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
-            echo "Error: Runner.app not found!"
+            echo "Error: Runner.app not found! Build failed."
             exit 1
           fi
           
           echo "Found App at: $APP_PATH"
+          
+          # 2. تعديل ملف Info.plist داخل التطبيق
+          PLIST_PATH="$APP_PATH/Info.plist"
+          
+          # محاولة حذف المفتاح أولاً لتجنب التكرار (تجاهل الخطأ إذا لم يكن موجوداً)
+          /usr/libexec/PlistBuddy -c "Delete :FLTEnableImpeller" "$PLIST_PATH" || true
+          
+          # إضافة المفتاح لتعطيل المحرك الجديد
+          /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" "$PLIST_PATH"
+          
+          echo "Success: Impeller disabled in Info.plist"
+
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
+          
+          # نقل التطبيق للمجلد
           cp -r "$APP_PATH" Payload/
+          
+          # ضغط الملف
           zip -r StudentApp.ipa Payload
 
       - name: Upload IPA
