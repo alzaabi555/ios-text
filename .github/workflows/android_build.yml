@@ -1,4 +1,4 @@
-name: Build Android APK (Final Auto Fix)
+name: Build Android APK (Manual & Fixed)
 
 on:
   workflow_dispatch:
@@ -40,41 +40,51 @@ jobs:
           echo "idna" >> requirements.txt
           echo "openpyxl" >> requirements.txt
 
-      - name: Prepare Icon
+      - name: Prepare Project Structure
         run: |
+          mkdir app_build
+          cp main.py app_build/
+          cp requirements.txt app_build/
+          # Copy icon if it exists
           if [ -f "icon.png" ]; then
-            echo "Icon found! ✅"
-            mkdir -p assets
-            cp icon.png assets/icon.png
-          else
-            echo "Warning: icon.png not found! Using default."
+            cp icon.png app_build/
           fi
-
-      - name: Build APK (with Impeller Disabled)
-        # --product: يحدد اسم التطبيق
-        # --flutter-build-args: يمرر أمر تعطيل المحرك الجديد لحل الشاشة البيضاء
-        run: |
-          flet build apk . --project StudentApp --product "المتابع المدرسي" --flutter-build-args="--no-enable-impeller" --verbose
-
-      - name: Find and Rename APK
-        # البحث الذكي عن الملف الناتج
-        run: |
-          APK_PATH=$(find . -name "*.apk" | grep "release" | head -n 1)
           
-          if [ -z "$APK_PATH" ]; then
-            APK_PATH=$(find . -name "*.apk" | head -n 1)
-          fi
+          cd app_build
+          
+          # 1. Create Flutter Project (Define Org and Name here)
+          flutter create . --platforms android --org com.schoolapp --project-name student_app
+          
+          # 2. Remove default Flutter code
+          rm lib/main.dart
+          
+          # 3. Create Flet code (FIXED: Removed conflicting arguments)
+          flet create . --description "المتابع المدرسي"
 
-          if [ -z "$APK_PATH" ]; then
-            echo "Error: APK file not found!"
-            exit 1
-          fi
+      - name: CONFIGURE ANDROID (Manifest Fixes)
+        run: |
+          cd app_build
+          MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
+          
+          # 1. Add Storage Permissions
+          sed -i 's|<application|<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>\n    <application|g' $MANIFEST_PATH
+          
+          # 2. Disable Impeller (Fix White Screen)
+          # We inject the meta-data tag inside the application tag
+          sed -i 's|<application|<application\n        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />|g' $MANIFEST_PATH
+          
+          # 3. Set Arabic Name
+          sed -i 's/android:label="student_app"/android:label="المتابع المدرسي"/g' $MANIFEST_PATH
+          
+          echo "Configuration Complete: Permissions added, Impeller disabled, Name changed."
 
-          echo "Found APK at: $APK_PATH"
-          mv "$APK_PATH" StudentApp.apk
+      - name: Build APK
+        run: |
+          cd app_build
+          flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: StudentApp-Android
-          path: StudentApp.apk
+          path: app_build/build/app/outputs/flutter-apk/app-release.apk
