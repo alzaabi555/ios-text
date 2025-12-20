@@ -26,8 +26,8 @@ jobs:
       - name: Install CocoaPods
         run: sudo gem install cocoapods
 
-      - name: Create Requirements File
-        # هنا كان النقص! أضفنا pandas و openpyxl ليعمل التصدير والاستيراد
+      - name: Create Requirements File (With Excel Support)
+        # أضفنا pandas و openpyxl لحل مشكلة استيراد البيانات
         run: |
           echo "flet==0.22.1" > requirements.txt
           echo "certifi" >> requirements.txt
@@ -39,8 +39,11 @@ jobs:
           echo "pandas" >> requirements.txt
           echo "openpyxl" >> requirements.txt
 
-      - name: Prepare Project (Manual Build)
-        # نفس خطوات البناء الناجحة السابقة
+      - name: Prepare Project (The Force Fix)
+        # هنا الحل لمشكلة "Target file not found":
+        # 1. ننشئ ملفات فلاتر (للحصول على مجلد ios)
+        # 2. نحذف ملفات فلاتر الرئيسية (main.dart و pubspec.yaml)
+        # 3. نجبر flet على إنشاء الملفات من الصفر
         run: |
           mkdir app_build
           cp main.py app_build/
@@ -48,11 +51,14 @@ jobs:
           
           cd app_build
           
-          # إنشاء هيكل فلاتر
+          # إنشاء مجلدات الايفون
           flutter create . --platforms ios --org com.schoolapp
           
-          # حذف الكود الافتراضي واستبداله بكودنا
+          # التنظيف الجذري (حذف أي أثر لفلاتر القديم)
           rm lib/main.dart
+          rm pubspec.yaml
+          
+          # إنشاء كود Flet الآن (سيجد الساحة نظيفة وسينشئ الملفات المطلوبة)
           flet create .
           
           # تصحيح التمرير تلقائياً
