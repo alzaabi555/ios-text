@@ -23,10 +23,10 @@ class SchoolApp:
         # --- إدارة البيانات ---
         def load_data():
             try:
-                data = page.client_storage.get("school_db_final_v3")
+                data = page.client_storage.get("school_db_final_v4")
                 if isinstance(data, dict):
                     self.school_data = data
-                    # إصلاح البيانات القديمة لتشمل الحضور
+                    # إصلاح البيانات القديمة
                     for cls in self.school_data.values():
                         for s in cls:
                             if "present" not in s: s["present"] = True
@@ -36,7 +36,7 @@ class SchoolApp:
                 self.school_data = {}
 
         def save_data():
-            page.client_storage.set("school_db_final_v3", self.school_data)
+            page.client_storage.set("school_db_final_v4", self.school_data)
 
         load_data()
 
@@ -69,7 +69,7 @@ class SchoolApp:
                             ),
                         ])
                     ),
-                    ft.Text("الإصدار 3.5 (نسخة المعلم)", size=12, color="grey", text_align="center")
+                    ft.Text("الإصدار 3.6 (نسخة المعلم)", size=12, color="grey", text_align="center")
                 ], tight=True, spacing=20),
                 actions=[
                     ft.TextButton("إغلاق", on_click=lambda e: page.close_dialog())
@@ -80,7 +80,7 @@ class SchoolApp:
             dlg.open = True
             page.update()
 
-        # --- دالة الاستيراد ---
+        # --- دالة الاستيراد (المصححة) ---
         def on_file_picked(e: ft.FilePickerResultEvent):
             if not e.files or not self.current_class: return
 
@@ -97,18 +97,27 @@ class SchoolApp:
                     for row in sheet.iter_rows(values_only=True):
                         raw_rows.append([str(cell) if cell else "" for cell in row])
                 
-                # معالجة CSV (مع حل مشكلة الرموز)
+                # معالجة CSV (الحل الجذري للرموز)
                 elif file_name.endswith('.csv'):
-                    encodings = ['utf-8-sig', 'utf-8', 'windows-1256', 'cp1256']
+                    # نجرب cp1256 أولاً (لأنه الأرجح لملفات الاكسل العربية) ثم utf-8
+                    encodings = ['cp1256', 'windows-1256', 'utf-8-sig', 'utf-8']
+                    
                     for enc in encodings:
                         try:
                             with open(file_path, 'r', encoding=enc) as f:
-                                raw_rows = list(csv.reader(f))
-                            break
-                        except UnicodeDecodeError:
+                                # نقرأ الملف بالكامل لنتأكد
+                                temp_rows = list(csv.reader(f))
+                                # فحص سريع: هل الكلمات مقروءة؟
+                                # إذا وجدنا حروفاً عربية سليمة نعتمد هذا الترميز
+                                text_sample = str(temp_rows)
+                                if any("\u0600" <= c <= "\u06FF" for c in text_sample): 
+                                    raw_rows = temp_rows
+                                    break
+                                else:
+                                    # إذا لم نجد عربياً، ربما الترميز خطأ، نكمل المحاولة
+                                    raw_rows = temp_rows 
+                        except:
                             continue
-                    
-                    if not raw_rows: raise Exception("فشل قراءة الملف")
 
                 # إضافة الأسماء
                 current_students = self.school_data[self.current_class]
@@ -117,6 +126,9 @@ class SchoolApp:
                 for row in raw_rows:
                     for cell in row:
                         val = str(cell).strip()
+                        # تنظيف النص من الرموز الغريبة
+                        val = val.replace("ï»¿", "") 
+                        
                         if len(val) > 2 and not val.isdigit() and "اسم" not in val and "Name" not in val and "طالب" not in val:
                             if val not in existing_names:
                                 current_students.append({
@@ -197,7 +209,6 @@ class SchoolApp:
                         ft.AppBar(
                             title=ft.Text("الفصول الدراسية"), 
                             bgcolor="indigo", color="white",
-                            # هنا زر المعلومات (الهوية)
                             leading=ft.IconButton(ft.icons.INFO_OUTLINE, tooltip="معلومات المعلم", on_click=show_info_dialog)
                         ),
                         ft.Container(padding=10, bgcolor="white", content=ft.Row([txt_class_name, ft.FloatingActionButton(icon=ft.icons.ADD, on_click=add_class)])),
@@ -259,7 +270,6 @@ class SchoolApp:
                     score = s.get('score', 0)
                     is_present = s.get('present', True)
                     
-                    # تنسيق البطاقة حسب الحضور
                     card_color = "white" if is_present else "#eeeeee"
                     opacity = 1.0 if is_present else 0.5
                     att_icon = ft.icons.CHECK_CIRCLE if is_present else ft.icons.CANCEL
@@ -271,7 +281,6 @@ class SchoolApp:
                             color=card_color,
                             content=ft.ListTile(
                                 opacity=opacity,
-                                # زر الحضور
                                 leading=ft.IconButton(
                                     icon=att_icon, icon_color=att_color, 
                                     tooltip="تحضير/تغييب",
@@ -282,7 +291,10 @@ class SchoolApp:
                                 trailing=ft.Row([
                                     ft.IconButton(ft.icons.EDIT, icon_color="blue", on_click=lambda e, idx=i: open_card(idx)),
                                     ft.IconButton(ft.icons.DELETE_OUTLINE, icon_color="red", on_click=lambda e, idx=i: delete_student(idx)),
-                                ], main_axis_alignment=ft.MainAxisAlignment.END, width=100),
+                                ], 
+                                # --- هنا تم الإصلاح: استبدال main_axis_alignment بـ alignment ---
+                                alignment=ft.MainAxisAlignment.END, 
+                                width=100),
                             )
                         )
                     )
