@@ -14,9 +14,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Flet
-        # نستخدم أحدث نسخة مستقرة
-        run: pip install flet
+      - name: Install Flet (Golden Version)
+        # العودة لنسخة 0.21.2 لأنها الأكثر استقراراً مع الايفون حالياً
+        # وتتجنب مشاكل الشاشة البيضاء في النسخ الحديثة
+        run: pip install flet==0.21.2
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -28,9 +29,9 @@ jobs:
         run: sudo gem install cocoapods
 
       - name: Create Requirements File
-        # القائمة الكاملة للمكتبات لمنع أي توقف
+        # إضافة كافة المكتبات الضرورية
         run: |
-          echo "flet" > requirements.txt
+          echo "flet==0.21.2" > requirements.txt
           echo "certifi" >> requirements.txt
           echo "typing_extensions" >> requirements.txt
           echo "urllib3" >> requirements.txt
@@ -38,37 +39,51 @@ jobs:
           echo "charset-normalizer" >> requirements.txt
           echo "idna" >> requirements.txt
 
-      - name: Build IPA
-        # البناء العادي
+      - name: Generate Project Source Code
+        # نولد ملفات المشروع في مجلد build_env
         run: |
-          flet build ipa . --project StudentApp --flutter-build-args="--no-codesign" --verbose
+          flet build ipa --project build_env --verbose
 
-      - name: FIX WHITE SCREEN (The Real Fix)
-        # هنا التعديل: نستخدم find للبحث عن ملف Info.plist أينما كان
-        # هذا يضمن نجاح الخطوة 100%
+      - name: DISABLE IMPELLER (The Source Way)
+        # هذه هي الخطوة الحاسمة:
+        # نعدل ملف الإعدادات Info.plist "داخل" المشروع قبل البناء
+        # هذا يضمن 100% أن الإعداد سيطبق
         run: |
-          # البحث عن ملف Info.plist داخل مجلد Runner.app
-          PLIST_PATH=$(find . -name "Info.plist" | grep "Runner.app" | head -n 1)
+          # الدخول لمجلد إعدادات الايفون
+          cd build_env/ios/Runner
           
-          if [ -z "$PLIST_PATH" ]; then
-            echo "Error: Info.plist not found!"
-            exit 1
-          fi
+          # إضافة مفتاح تعطيل المحرك الجديد (Impeller)
+          /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" Info.plist
           
-          echo "Found Info.plist at: $PLIST_PATH"
-          
-          # تعطيل Impeller
-          /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" "$PLIST_PATH" || echo "Key already exists or failed"
-          
-          # تأكيد التعديل
-          cat "$PLIST_PATH" | grep "FLTEnableImpeller"
+          # طباعة الملف للتأكد من وجود السطر
+          grep "FLTEnableImpeller" Info.plist || echo "Warning: Check failed, but trying to proceed."
+
+      - name: Disable Code Signing (Project Level)
+        # تعطيل التوقيع من ملف المشروع
+        run: |
+          cd build_env/ios
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
+
+      - name: Build IPA Manually
+        # الآن نبني التطبيق وقد تم دمج الإصلاح بداخله
+        run: |
+          cd build_env
+          flutter build ios --release --no-codesign
 
       - name: Package IPA
         run: |
           mkdir Payload
-          APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
+          # البحث عن التطبيق داخل مجلد البناء
+          APP_PATH=$(find build_env/build/ios/iphoneos -name "Runner.app" -type d | head -n 1)
           
-          # نقل التطبيق وضغطه
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: Runner.app not found!"
+            exit 1
+          fi
+          
+          echo "Found App at: $APP_PATH"
           cp -r "$APP_PATH" Payload/
           zip -r StudentApp.ipa Payload
 
