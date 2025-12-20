@@ -1,4 +1,4 @@
-name: Build Android APK (Legendary 0.18.0)
+name: Build Android APK (Manual SDK Fix)
 
 on:
   workflow_dispatch:
@@ -14,10 +14,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      # نستخدم النسخة 0.18.0 الأكثر استقراراً في تاريخ Flet
-      # هذه النسخة موجودة ومجربة 100%
+      # نستخدم Flet 0.21.2 المستقر
       - name: Install Flet
-        run: pip install flet==0.18.0
+        run: pip install flet==0.21.2
 
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -25,7 +24,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # نستخدم Flutter 3.16.9 (لا شاشة بيضاء، لا مشاكل)
+      # نستخدم Flutter 3.16.9 (الأمان من الشاشة البيضاء)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -33,9 +32,8 @@ jobs:
           channel: 'stable'
 
       - name: Create Requirements File
-        # نوحد النسخ هنا أيضاً
         run: |
-          echo "flet==0.18.0" > requirements.txt
+          echo "flet==0.21.2" > requirements.txt
           echo "certifi" >> requirements.txt
           echo "typing_extensions" >> requirements.txt
           echo "urllib3" >> requirements.txt
@@ -44,41 +42,60 @@ jobs:
           echo "idna" >> requirements.txt
           echo "openpyxl" >> requirements.txt
 
-      - name: Prepare Icon
+      - name: Prepare Project (Manual Build)
         run: |
+          mkdir app_build
+          cp main.py app_build/
+          cp requirements.txt app_build/
           if [ -f "icon.png" ]; then
-            echo "Icon found! ✅"
-            mkdir -p assets
-            cp icon.png assets/icon.png
-          else
-            echo "Warning: icon.png not found! Using default."
+            cp icon.png app_build/
           fi
+          
+          cd app_build
+          
+          # 1. إنشاء المشروع
+          flutter create . --platforms android --org com.schoolapp --project-name student_app
+          
+          # 2. حذف الكود الافتراضي
+          rm lib/main.dart
+          
+          # 3. دمج كود بايثون
+          flet create . --description "المتابع المدرسي" --org com.schoolapp --project-name student_app
+
+      - name: FIX ANDROID SDK VERSION (The Key Fix)
+        # هنا نحل المشكلة: نجبر التطبيق على استخدام SDK 34
+        run: |
+          cd app_build/android/app
+          
+          # تعديل ملف build.gradle
+          # نغير compileSdkVersion إلى 34
+          sed -i 's/compileSdkVersion .*/compileSdkVersion 34/g' build.gradle
+          # نغير targetSdkVersion إلى 34
+          sed -i 's/targetSdkVersion .*/targetSdkVersion 34/g' build.gradle
+          
+          echo "SDK Version updated to 34 ✅"
+
+      - name: FIX PERMISSIONS & NAME
+        run: |
+          cd app_build/android/app/src/main
+          
+          MANIFEST="AndroidManifest.xml"
+          
+          # إضافة الأذونات
+          sed -i 's|<application|<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>\n    <application|g' $MANIFEST
+          
+          # تغيير الاسم للعربية
+          sed -i 's/android:label="student_app"/android:label="المتابع المدرسي"/g' $MANIFEST
+          
+          echo "Permissions and Name updated ✅"
 
       - name: Build APK
-        # هذه النسخة القديمة من Flet لا تدعم خيار --product
-        # لذلك نستخدم الأمر البسيط، وسنغير الاسم لاحقاً يدوياً إذا لزم الأمر
-        # الأهم الآن هو أن يعمل التطبيق!
         run: |
-          flet build apk . --project StudentApp --verbose
-
-      - name: Find and Rename APK
-        run: |
-          APK_PATH=$(find . -name "*.apk" | grep "release" | head -n 1)
-          
-          if [ -z "$APK_PATH" ]; then
-            APK_PATH=$(find . -name "*.apk" | head -n 1)
-          fi
-
-          if [ -z "$APK_PATH" ]; then
-            echo "Error: APK file not found!"
-            exit 1
-          fi
-
-          echo "Found APK at: $APK_PATH"
-          mv "$APK_PATH" StudentApp.apk
+          cd app_build
+          flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: StudentApp-Android
-          path: StudentApp.apk
+          path: app_build/build/app/outputs/flutter-apk/app-release.apk
