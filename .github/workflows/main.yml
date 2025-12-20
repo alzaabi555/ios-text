@@ -27,7 +27,8 @@ jobs:
         run: sudo gem install cocoapods
 
       - name: Create Requirements File
-        # نستخدم openpyxl فقط لأنها تعمل بنجاح على الايفون
+        # القائمة المعتمدة والآمنة للايفون
+        # لاحظ: لا يوجد pandas هنا، فقط openpyxl
         run: |
           echo "flet==0.22.1" > requirements.txt
           echo "certifi" >> requirements.txt
@@ -37,61 +38,38 @@ jobs:
           echo "charset-normalizer" >> requirements.txt
           echo "idna" >> requirements.txt
           echo "openpyxl" >> requirements.txt
+          echo "et-xmlfile" >> requirements.txt
 
-      - name: Prepare Project (The Golden Method)
-        # هذه هي الطريقة التي نجحت سابقاً:
-        # 1. ننشئ مشروع فلاتر كامل (يحتوي على pubspec.yaml ومجلد ios)
-        # 2. نحذف ملف الكود الرئيسي فقط (lib/main.dart) لنزيل العداد
-        # 3. نضع كود flet مكانه
+      - name: Build IPA (Auto Mode)
+        # نعود للبناء التلقائي، سيعمل الآن لأننا أزلنا pandas
         run: |
-          mkdir app_build
-          cp main.py app_build/
-          cp requirements.txt app_build/
-          
-          cd app_build
-          
-          # إنشاء ملفات النظام (بما في ذلك pubspec.yaml)
-          flutter create . --platforms ios --org com.schoolapp
-          
-          # حذف كود العداد فقط (لا نحذف pubspec.yaml)
-          rm lib/main.dart
-          
-          # وضع كود Flet
-          flet create .
-          
-          # تصحيح التمرير
-          sed -i '' 's/page.scroll = "adaptive"/page.scroll = "auto"/g' main.py || true
+          flet build ipa . --project StudentApp --flutter-build-args="--no-codesign" --verbose
 
-      - name: DISABLE IMPELLER (Fix White Screen)
-        # تعطيل المحرك الجديد من المصدر
+      - name: FIX WHITE SCREEN (Final Patch)
+        # إصلاح الشاشة البيضاء بتعديل التطبيق الناتج
         run: |
-          cd app_build/ios/Runner
-          /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" Info.plist
-          echo "Impeller Disabled."
-
-      - name: Disable Code Signing
-        run: |
-          cd app_build/ios
-          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
-
-      - name: Build IPA Manually
-        run: |
-          cd app_build
-          flutter build ios --release --no-codesign
-
-      - name: Package IPA
-        run: |
-          mkdir Payload
-          APP_PATH=$(find app_build/build/ios/iphoneos -name "Runner.app" -type d | head -n 1)
+          # 1. العثور على التطبيق
+          APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
-            echo "Error: Runner.app not found!"
+            echo "Error: Runner.app not found! Build failed."
             exit 1
           fi
           
           echo "Found App at: $APP_PATH"
+          
+          # 2. تعديل ملف الإعدادات لتعطيل Impeller
+          PLIST_PATH="$APP_PATH/Info.plist"
+          
+          /usr/libexec/PlistBuddy -c "Delete :FLTEnableImpeller" "$PLIST_PATH" || true
+          /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" "$PLIST_PATH"
+          
+          echo "Success: Impeller disabled."
+
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          APP_PATH=$(find . -name "Runner.app" -type d | head -n 1)
           cp -r "$APP_PATH" Payload/
           zip -r StudentApp.ipa Payload
 
