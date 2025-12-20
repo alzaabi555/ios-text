@@ -15,7 +15,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Flet
-        # نسخة مستقرة
+        # نستخدم نسخة 0.22.1 لاستقرارها
         run: pip install flet==0.22.1
 
       - name: Setup Flutter
@@ -37,41 +37,29 @@ jobs:
           echo "charset-normalizer" >> requirements.txt
           echo "idna" >> requirements.txt
 
-      - name: Prepare Project (The Fix)
-        # 1. ننشئ المجلد
-        # 2. ننشئ هيكل فلاتر (الذي يحتوي على العداد ومجلد ios)
-        # 3. نحذف كود العداد
-        # 4. نضع كود Flet مكانه
+      - name: Generate Project Structure (Ignore Errors)
+        # هذه الخطوة تولد مجلد app_build وفيه ملف main.dart الصحيح
+        # وضعنا continue-on-error لأننا نتوقع أن يفشل البناء هنا بسبب التوقيع
+        # لكننا نحتاج المجلد فقط
+        continue-on-error: true
         run: |
-          mkdir app_build
-          cp main.py app_build/
-          cp requirements.txt app_build/
-          
-          cd app_build
-          
-          # الخطوة أ: إنشاء مجلدات الايفون (سيظهر العداد هنا)
-          flutter create . --platforms ios --org com.studentapp
-          
-          # الخطوة ب: حذف العداد الافتراضي
-          rm lib/main.dart
-          
-          # الخطوة ج: وضع كود Flet مكانه (هذا يعيد تطبيقك)
-          flet create .
-          
-          # الخطوة د: تصحيح كودك تلقائياً (إزالة adaptive لتجنب المشاكل)
+          flet build ipa --project app_build --verbose
+
+      - name: Fix Adaptive Scroll (Code Patch)
+        # تصحيح وقائي للكود
+        run: |
           sed -i '' 's/page.scroll = "adaptive"/page.scroll = "auto"/g' main.py || true
 
       - name: DISABLE IMPELLER (Fix White Screen)
-        # الآن المجلد موجود 100% لأننا أنشأناه في الخطوة السابقة
+        # الآن المجلد app_build موجود بالتأكيد وفيه الإعدادات
+        # نقوم بتعطيل المحرك الجديد
         run: |
           cd app_build/ios/Runner
-          
-          # إضافة مفتاح تعطيل الشاشة البيضاء
           /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" Info.plist
-          
-          echo "Done: Impeller Disabled."
+          echo "Impeller Disabled Successfully."
 
       - name: Disable Code Signing
+        # تعطيل التوقيع
         run: |
           cd app_build/ios
           sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/g' Runner.xcodeproj/project.pbxproj
@@ -79,6 +67,7 @@ jobs:
           sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' Runner.xcodeproj/project.pbxproj
 
       - name: Build IPA Manually
+        # الآن نبني التطبيق يدوياً، وهذه المرة ملف main.dart موجود وصحيح
         run: |
           cd app_build
           flutter build ios --release --no-codesign
@@ -86,7 +75,7 @@ jobs:
       - name: Package IPA
         run: |
           mkdir Payload
-          # البحث عن التطبيق داخل مجلد app_build
+          # البحث عن التطبيق
           APP_PATH=$(find app_build/build/ios/iphoneos -name "Runner.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
