@@ -1,4 +1,4 @@
-name: Build Android APK (Manual Fix)
+name: Build Android APK (Final Auto Fix)
 
 on:
   workflow_dispatch:
@@ -40,51 +40,41 @@ jobs:
           echo "idna" >> requirements.txt
           echo "openpyxl" >> requirements.txt
 
-      - name: Prepare Project (Manual Build)
+      - name: Prepare Icon
         run: |
-          mkdir app_build
-          cp main.py app_build/
-          cp requirements.txt app_build/
-          # نسخ الأيقونة إذا وجدت
           if [ -f "icon.png" ]; then
-            cp icon.png app_build/
+            echo "Icon found! ✅"
+            mkdir -p assets
+            cp icon.png assets/icon.png
+          else
+            echo "Warning: icon.png not found! Using default."
           fi
-          
-          cd app_build
-          
-          # 1. إنشاء مشروع فلاتر (هنا نحدد الاسم والمنظمة)
-          flutter create . --platforms android --org com.schoolapp --project-name student_app
-          
-          # 2. حذف الكود الافتراضي
-          rm lib/main.dart
-          
-          # 3. دمج كود بايثون (تم التصحيح: حذفنا الخيارات الزائدة)
-          flet create . --description "المتابع المدرسي"
 
-      - name: FIX WHITE SCREEN & PERMISSIONS
+      - name: Build APK (with Impeller Disabled)
+        # --product: يحدد اسم التطبيق
+        # --flutter-build-args: يمرر أمر تعطيل المحرك الجديد لحل الشاشة البيضاء
         run: |
-          cd app_build
-          
-          MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
-          
-          # 1. إضافة إذن قراءة الملفات
-          sed -i 's|<application|<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>\n    <application|g' $MANIFEST_PATH
-          
-          # 2. تعطيل محرك Impeller (حل الشاشة البيضاء)
-          sed -i 's|<application|<application\n        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />|g' $MANIFEST_PATH
-          
-          # 3. تغيير اسم التطبيق للعربية
-          sed -i 's/android:label="student_app"/android:label="المتابع المدرسي"/g' $MANIFEST_PATH
-          
-          echo "Done: Permissions added, Impeller disabled, Arabic name set."
+          flet build apk . --project StudentApp --product "المتابع المدرسي" --flutter-build-args="--no-enable-impeller" --verbose
 
-      - name: Build APK
+      - name: Find and Rename APK
+        # البحث الذكي عن الملف الناتج
         run: |
-          cd app_build
-          flutter build apk --release
+          APK_PATH=$(find . -name "*.apk" | grep "release" | head -n 1)
+          
+          if [ -z "$APK_PATH" ]; then
+            APK_PATH=$(find . -name "*.apk" | head -n 1)
+          fi
+
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: APK file not found!"
+            exit 1
+          fi
+
+          echo "Found APK at: $APK_PATH"
+          mv "$APK_PATH" StudentApp.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: StudentApp-Android
-          path: app_build/build/app/outputs/flutter-apk/app-release.apk
+          path: StudentApp.apk
