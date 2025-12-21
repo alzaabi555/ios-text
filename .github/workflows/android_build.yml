@@ -1,4 +1,4 @@
-name: Build Android APK (Modern 3.22 Fix)
+name: Build Android APK (Root Fix)
 
 on:
   workflow_dispatch:
@@ -14,9 +14,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      # نثبت أحدث نسخة من Flet تلقائياً
+      # نستخدم Flet 0.21.2 المتوافق
       - name: Install Flet
-        run: pip install flet
+        run: pip install flet==0.21.2
 
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -24,17 +24,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # نستخدم Flutter 3.22.0 (إصدار حديث ومستقر يحل مشاكل الرسومات)
+      # نستخدم Flutter 3.16.9 (لأنه لا يسبب شاشة بيضاء)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'
+          flutter-version: '3.16.9'
           channel: 'stable'
 
       - name: Create Requirements File
-        # نترك المكتبات تتحدث لآخر إصدار
         run: |
-          echo "flet" > requirements.txt
+          echo "flet==0.21.2" > requirements.txt
           echo "certifi" >> requirements.txt
           echo "typing_extensions" >> requirements.txt
           echo "urllib3" >> requirements.txt
@@ -53,9 +52,35 @@ jobs:
             echo "Warning: icon.png not found! Using default."
           fi
 
-      - name: Build APK (Auto Mode)
-        # نستخدم البناء التلقائي مع أحدث الأدوات
-        # لن نمرر أي أعلام معقدة، سنترك Flet يقوم بعمله
+      - name: FORCE UPDATE FLUTTER TEMPLATES (The Magic Trick)
+        # هذه الخطوة تقوم بتعديل القوالب الداخلية لـ Flutter
+        # لنجبرها على استخدام SDK 34 وحل مشكلة توافق المكتبات
+        run: |
+          FLUTTER_HOME=$(dirname $(dirname $(which flutter)))
+          echo "Flutter is installed at: $FLUTTER_HOME"
+          
+          # البحث عن ملف القالب الخاص بالأندرويد
+          TEMPLATE_PATH="$FLUTTER_HOME/packages/flutter_tools/templates/app/android.tmpl/app/build.gradle"
+          
+          if [ -f "$TEMPLATE_PATH" ]; then
+            echo "Found template at $TEMPLATE_PATH"
+            # استبدال نسخة SDK بالقوة
+            sed -i 's/compileSdkVersion .*/compileSdkVersion 34/g' "$TEMPLATE_PATH"
+            sed -i 's/targetSdkVersion .*/targetSdkVersion 34/g' "$TEMPLATE_PATH"
+            echo "Successfully injected SDK 34 into Flutter templates! 💉"
+          else
+            echo "Template not found! Trying alternative path..."
+            # مسار بديل قد يكون موجوداً في بعض النسخ
+            TEMPLATE_PATH_ALT="$FLUTTER_HOME/packages/flutter_tools/templates/app/android.tmpl/app/build.gradle.kts"
+            if [ -f "$TEMPLATE_PATH_ALT" ]; then
+               echo "Found Kotlin template."
+               sed -i 's/compileSdk = .*/compileSdk = 34/g' "$TEMPLATE_PATH_ALT"
+               sed -i 's/targetSdk = .*/targetSdk = 34/g' "$TEMPLATE_PATH_ALT"
+            fi
+          fi
+
+      - name: Build APK (Auto Mode with Hacked Template)
+        # الآن نستخدم البناء التلقائي، وسيقوم بإنشاء المشروع بناءً على القالب المعدل
         run: |
           flet build apk . --project StudentApp --product "المتابع المدرسي" --verbose
 
