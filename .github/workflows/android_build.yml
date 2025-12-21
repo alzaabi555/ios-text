@@ -1,4 +1,4 @@
-name: Build Android APK (Template Injection Fix)
+name: Build Android APK (Python Patcher Fix)
 
 on:
   workflow_dispatch:
@@ -14,7 +14,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # نستخدم أحدث نسخة من Flet
       - name: Install Flet
         run: pip install flet
 
@@ -24,7 +23,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # نستخدم Flutter 3.22.0 (حديث ومستقر)
+      # نستخدم Flutter 3.22.0 (الأحدث والأقوى)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -52,37 +51,86 @@ jobs:
             echo "Warning: icon.png not found! Using default."
           fi
 
-      - name: INJECT IMPELLER DISABLE INTO FLUTTER (The Magic Trick)
-        # هذه الخطوة تبحث عن القالب الأصلي لملف AndroidManifest داخل Flutter
-        # وتضيف إليه كود تعطيل Impeller قبل أن يبدأ البناء
+      - name: PATCH FLUTTER TEMPLATE (Python Script)
+        # هذا السكربت يقوم بالتعديل الجراحي المضمون
+        shell: python
         run: |
-          FLUTTER_HOME=$(dirname $(dirname $(which flutter)))
-          echo "Flutter located at: $FLUTTER_HOME"
-          
-          # البحث عن قالب الـ Manifest
-          # نستخدم find لأن المسار قد يختلف قليلاً
-          TEMPLATE_FILE=$(find $FLUTTER_HOME -name "AndroidManifest.xml.tmpl" | grep "android.tmpl" | head -n 1)
-          
-          if [ -z "$TEMPLATE_FILE" ]; then
-             echo "Could not find AndroidManifest template! Trying generic search..."
-             TEMPLATE_FILE=$(find $FLUTTER_HOME -name "AndroidManifest.xml" | grep "templates" | head -n 1)
-          fi
+          import os
+          import shutil
 
-          if [ -z "$TEMPLATE_FILE" ]; then
-             echo "Error: Critical template file not found. Skipping injection (Fix might fail)."
-          else
-             echo "Injecting fix into: $TEMPLATE_FILE"
-             
-             # الكود السحري: إضافة meta-data لتعطيل Impeller
-             # نقوم بحقن السطر قبل وسم إغلاق </application>
-             sed -i 's|</application>|        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />\n    </application>|g' "$TEMPLATE_FILE"
-             
-             echo "Injection Successful! Impeller will be disabled by default. 💉✅"
-             cat "$TEMPLATE_FILE" | grep "EnableImpeller"
-          fi
+          # 1. البحث عن مسار Flutter
+          flutter_bin = shutil.which("flutter")
+          flutter_home = os.path.dirname(os.path.dirname(flutter_bin))
+          print(f"Flutter Home found at: {flutter_home}")
+
+          # 2. البحث عن ملف القالب (AndroidManifest.xml.tmpl)
+          target_file = None
+          for root, dirs, files in os.walk(flutter_home):
+              for file in files:
+                  if file == "AndroidManifest.xml.tmpl" and "android.tmpl" in root:
+                      target_file = os.path.join(root, file)
+                      break
+              if target_file: break
+          
+          if not target_file:
+              # محاولة بحث بديلة
+              for root, dirs, files in os.walk(flutter_home):
+                  if "AndroidManifest.xml" in files and "templates" in root:
+                      target_file = os.path.join(root, "AndroidManifest.xml")
+                      break
+
+          if not target_file:
+              print("Error: Could not find AndroidManifest template!")
+              exit(1)
+
+          print(f"Patching file: {target_file}")
+
+          # 3. قراءة الملف وتعديله
+          with open(target_file, "r") as f:
+              content = f.read()
+
+          # كود تعطيل الشاشة البيضاء
+          impeller_fix = '        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />'
+          
+          # الحقن الذكي: إذا لم يكن موجوداً، نضيفه قبل إغلاق التطبيق
+          if "EnableImpeller" not in content:
+              if "</application>" in content:
+                  content = content.replace("</application>", f"{impeller_fix}\n    </application>")
+                  print("Impeller Fix injected successfully (Tag Method) ✅")
+              else:
+                  # طريقة بديلة في حال اختلف التنسيق
+                  content = content.replace("<application", f"<application\n{impeller_fix}")
+                  print("Impeller Fix injected successfully (Header Method) ✅")
+          else:
+              print("Impeller Fix already present.")
+
+          with open(target_file, "w") as f:
+              f.write(content)
+
+          # 4. تحديث إصدار SDK في ملف build.gradle (القالب)
+          gradle_file = os.path.join(os.path.dirname(os.path.dirname(target_file)), "build.gradle")
+          if not os.path.exists(gradle_file):
+             # مسار بديل للقوالب الحديثة
+             gradle_file = os.path.join(os.path.dirname(os.path.dirname(target_file)), "build.gradle.kts")
+
+          if os.path.exists(gradle_file):
+              print(f"Updating SDK version in: {gradle_file}")
+              with open(gradle_file, "r") as f:
+                  g_content = f.read()
+              
+              # استبدال الإصدارات القديمة بـ 34
+              import re
+              g_content = re.sub(r'compileSdkVersion .*', 'compileSdkVersion 34', g_content)
+              g_content = re.sub(r'targetSdkVersion .*', 'targetSdkVersion 34', g_content)
+              g_content = re.sub(r'compileSdk = .*', 'compileSdk = 34', g_content)
+              g_content = re.sub(r'targetSdk = .*', 'targetSdk = 34', g_content)
+
+              with open(gradle_file, "w") as f:
+                  f.write(g_content)
+              print("SDK updated to 34 ✅")
 
       - name: Build APK (Auto Mode)
-        # الآن نستخدم البناء التلقائي، وسيقوم باستخدام القالب المعدل أعلاه
+        # الآن نستخدم البناء التلقائي بقلب مطمئن
         run: |
           flet build apk . --project StudentApp --product "المتابع المدرسي" --verbose
 
