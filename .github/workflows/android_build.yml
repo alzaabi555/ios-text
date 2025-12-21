@@ -1,4 +1,4 @@
-name: Build Android APK (Python Patcher Fix)
+name: Build Android APK (Permissions & Impeller Fix)
 
 on:
   workflow_dispatch:
@@ -23,7 +23,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # نستخدم Flutter 3.22.0 (الأحدث والأقوى)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -51,17 +50,16 @@ jobs:
             echo "Warning: icon.png not found! Using default."
           fi
 
-      - name: PATCH FLUTTER TEMPLATE (Python Script)
-        # هذا السكربت يقوم بالتعديل الجراحي المضمون
+      - name: PATCH FLUTTER TEMPLATES (The Ultimate Fix)
         shell: python
         run: |
           import os
           import shutil
 
-          # 1. البحث عن مسار Flutter
+          # 1. تحديد موقع Flutter
           flutter_bin = shutil.which("flutter")
           flutter_home = os.path.dirname(os.path.dirname(flutter_bin))
-          print(f"Flutter Home found at: {flutter_home}")
+          print(f"Flutter Home: {flutter_home}")
 
           # 2. البحث عن ملف القالب (AndroidManifest.xml.tmpl)
           target_file = None
@@ -73,52 +71,56 @@ jobs:
               if target_file: break
           
           if not target_file:
-              # محاولة بحث بديلة
-              for root, dirs, files in os.walk(flutter_home):
-                  if "AndroidManifest.xml" in files and "templates" in root:
-                      target_file = os.path.join(root, "AndroidManifest.xml")
+               # بحث احتياطي
+               for root, dirs, files in os.walk(flutter_home):
+                  if file == "AndroidManifest.xml" and "templates" in root:
+                      target_file = os.path.join(root, file)
                       break
 
           if not target_file:
-              print("Error: Could not find AndroidManifest template!")
+              print("Error: Template not found!")
               exit(1)
 
-          print(f"Patching file: {target_file}")
+          print(f"Patching: {target_file}")
 
-          # 3. قراءة الملف وتعديله
           with open(target_file, "r") as f:
               content = f.read()
 
-          # كود تعطيل الشاشة البيضاء
+          # --- التعديل الأول: الأذونات (الإنترنت والتخزين) ---
+          permissions = '''
+          <uses-permission android:name="android.permission.INTERNET"/>
+          <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+          <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+          '''
+          
+          if "android.permission.INTERNET" not in content:
+              # وضع الأذونات قبل وسم <application>
+              content = content.replace("<application", f"{permissions}\n    <application")
+              print("Permissions injected ✅")
+
+          # --- التعديل الثاني: تعطيل Impeller (الشاشة البيضاء) ---
           impeller_fix = '        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />'
           
-          # الحقن الذكي: إذا لم يكن موجوداً، نضيفه قبل إغلاق التطبيق
           if "EnableImpeller" not in content:
               if "</application>" in content:
                   content = content.replace("</application>", f"{impeller_fix}\n    </application>")
-                  print("Impeller Fix injected successfully (Tag Method) ✅")
               else:
-                  # طريقة بديلة في حال اختلف التنسيق
                   content = content.replace("<application", f"<application\n{impeller_fix}")
-                  print("Impeller Fix injected successfully (Header Method) ✅")
-          else:
-              print("Impeller Fix already present.")
+              print("Impeller Fix injected ✅")
 
           with open(target_file, "w") as f:
               f.write(content)
 
-          # 4. تحديث إصدار SDK في ملف build.gradle (القالب)
+          # --- التعديل الثالث: تحديث SDK إلى 34 ---
+          # نبحث عن build.gradle المرتبط
           gradle_file = os.path.join(os.path.dirname(os.path.dirname(target_file)), "build.gradle")
           if not os.path.exists(gradle_file):
-             # مسار بديل للقوالب الحديثة
              gradle_file = os.path.join(os.path.dirname(os.path.dirname(target_file)), "build.gradle.kts")
 
           if os.path.exists(gradle_file):
-              print(f"Updating SDK version in: {gradle_file}")
               with open(gradle_file, "r") as f:
                   g_content = f.read()
               
-              # استبدال الإصدارات القديمة بـ 34
               import re
               g_content = re.sub(r'compileSdkVersion .*', 'compileSdkVersion 34', g_content)
               g_content = re.sub(r'targetSdkVersion .*', 'targetSdkVersion 34', g_content)
@@ -129,25 +131,15 @@ jobs:
                   f.write(g_content)
               print("SDK updated to 34 ✅")
 
-      - name: Build APK (Auto Mode)
-        # الآن نستخدم البناء التلقائي بقلب مطمئن
+      - name: Build APK
         run: |
-          flet build apk . --project StudentApp --product "المتابع المدرسي" --verbose
+          flet build apk . --project StudentApp --product "الرفيق المدرسي" --verbose
 
       - name: Find and Rename APK
         run: |
           APK_PATH=$(find . -name "*.apk" | grep "release" | head -n 1)
-          
-          if [ -z "$APK_PATH" ]; then
-            APK_PATH=$(find . -name "*.apk" | head -n 1)
-          fi
-
-          if [ -z "$APK_PATH" ]; then
-            echo "Error: APK file not found!"
-            exit 1
-          fi
-
-          echo "Found APK at: $APK_PATH"
+          if [ -z "$APK_PATH" ]; then APK_PATH=$(find . -name "*.apk" | head -n 1); fi
+          if [ -z "$APK_PATH" ]; then echo "Error: APK not found!"; exit 1; fi
           mv "$APK_PATH" StudentApp.apk
 
       - name: Upload APK
