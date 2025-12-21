@@ -1,4 +1,4 @@
-name: Build Android APK (Open Box Method)
+name: Build Android APK (Corrected Open Box)
 
 on:
   workflow_dispatch:
@@ -31,34 +31,25 @@ jobs:
 
       - name: Prepare Files
         run: |
-          # تنظيف
           rm -rf build_dir
           mkdir build_dir
-          
-          # نسخ الملفات الضرورية
           cp main.py build_dir/
           if [ -f "icon.png" ]; then cp icon.png build_dir/; fi
-          
-          # إنشاء ملف المتطلبات
           echo "flet" > build_dir/requirements.txt
           echo "openpyxl" >> build_dir/requirements.txt
 
       - name: GENERATE FLUTTER PROJECT
         run: |
           cd build_dir
-          # هذا الأمر يولد كود Flutter ولكنه لا يبنيه
-          # سنحصل على مجلد اسمه 'student_app' أو مشابه
-          flet create . --project StudentApp --description "المتابع المدرسي" --org com.schoolapp
+          # تم التصحيح: أزلنا --org لأنه غير مدعوم
+          flet create . --project StudentApp --description "المتابع المدرسي"
 
-      - name: FORCE MANIFEST PATCH (The Real Fix)
+      - name: FORCE MANIFEST PATCH (White Screen Fix)
         shell: python
         run: |
           import os
           
-          # البحث عن ملف المانيفيست داخل المشروع المولد
-          # المسار المتوقع: build_dir/student_app/android/app/src/main/AndroidManifest.xml
-          # أو build_dir/StudentApp/android...
-          
+          # البحث الديناميكي عن ملف المانيفيست
           search_dir = "build_dir"
           manifest_path = None
           
@@ -76,7 +67,13 @@ jobs:
           with open(manifest_path, "r") as f:
               content = f.read()
               
-          # 1. إضافة الأذونات (الحل للشاشة البيضاء)
+          # 1. أهم خطوة: السماح بالاتصال المحلي (Cleartext)
+          # هذا هو السبب الرئيسي للشاشة البيضاء في Flet
+          if 'android:usesCleartextTraffic="true"' not in content:
+              content = content.replace("<application", '<application android:usesCleartextTraffic="true"')
+              print("Critical Fix: Cleartext Traffic Enabled ✅")
+
+          # 2. إضافة أذونات الإنترنت والتخزين
           permissions = '''
           <uses-permission android:name="android.permission.INTERNET"/>
           <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
@@ -87,37 +84,31 @@ jobs:
               content = content.replace("<application", f"{permissions}\n    <application")
               print("Permissions Injected ✅")
               
-          # 2. السماح بالاتصال المحلي (Cleartext Traffic) - ضروري جداً
-          if 'android:usesCleartextTraffic="true"' not in content:
-              content = content.replace("<application", '<application android:usesCleartextTraffic="true"')
-              print("Cleartext Traffic Enabled ✅")
-              
-          # 3. تعطيل Impeller
+          # 3. تعطيل Impeller (احتياط)
           impeller_tag = '<meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />'
           if "EnableImpeller" not in content:
                content = content.replace("</application>", f"    {impeller_tag}\n    </application>")
                print("Impeller Disabled ✅")
 
-          # 4. الاسم العربي
+          # 4. تعريب الاسم
           content = content.replace('android:label="StudentApp"', 'android:label="المتابع المدرسي"')
-          content = content.replace('android:label="studentapp"', 'android:label="المتابع المدرسي"')
           
           with open(manifest_path, "w") as f:
               f.write(content)
 
       - name: BUILD APK MANUALLY
         run: |
-          # البحث عن مجلد المشروع المولد للدخول إليه
+          # العثور على مجلد المشروع المولد
           PROJECT_DIR=$(find build_dir -maxdepth 2 -type d -name "android" | xargs dirname)
-          echo "Project is in: $PROJECT_DIR"
+          echo "Project generated in: $PROJECT_DIR"
           
           cd "$PROJECT_DIR"
           
-          # إضافة مكتبة flet لضمان عدم حدوث خطأ التبعيات
+          # خطوة هامة: إضافة مكتبة flet لبيئة flutter
           flutter pub add flet
           flutter pub get
           
-          # البناء
+          # البناء النهائي
           flutter build apk --release --verbose
 
       - name: Find and Rename APK
