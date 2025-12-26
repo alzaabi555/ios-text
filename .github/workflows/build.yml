@@ -98,10 +98,12 @@ jobs:
         run: |
           cd ios/App
           # Use 'build' instead of 'archive' to bypass strict signing checks on CI
+          # We define -derivedDataPath to explicitly locate the build artifacts
           xcodebuild -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
             -destination generic/platform=iOS \
+            -derivedDataPath dd \
             clean build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
@@ -109,9 +111,8 @@ jobs:
             
           # Manually package the .app into a Payload folder structure for IPA
           mkdir Payload
-          # Find the built .app in the derived data path or default build path
-          # In GitHub Actions standard env, it's usually here:
-          cp -r build/Release-iphoneos/App.app Payload/
+          # Copy from the explicit derived data path defined above
+          cp -r dd/Build/Products/Release-iphoneos/App.app Payload/
           
           # Zip it up to create the IPA
           zip -r Muhawil-Pro.ipa Payload
