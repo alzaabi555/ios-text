@@ -55,15 +55,15 @@ jobs:
           API_KEY: ${{ secrets.API_KEY }}
         run: npm run build
 
-      - name: Generate Icons (Cloud)
-        # This step generates the Android icons on the server so you don't need local tools
-        run: npx capacitor-assets generate --icon public/icon.png --android
-        continue-on-error: true
-
       - name: Setup Capacitor Android
         run: |
           npx cap add android || true
-          npx cap sync android
+      
+      - name: Generate Icons (Must run after cap add)
+        run: npx capacitor-assets generate --icon public/icon.png --android
+
+      - name: Sync Capacitor
+        run: npx cap sync android
 
       - name: Build Android APK
         run: |
@@ -94,14 +94,15 @@ jobs:
           API_KEY: ${{ secrets.API_KEY }}
         run: npm run build
 
-      - name: Generate Icons (Cloud)
-        run: npx capacitor-assets generate --icon public/icon.png --ios
-        continue-on-error: true
-
       - name: Setup Capacitor iOS
         run: |
           npx cap add ios || true
-          npx cap sync ios
+
+      - name: Generate Icons (Must run after cap add)
+        run: npx capacitor-assets generate --icon public/icon.png --ios
+
+      - name: Sync Capacitor
+        run: npx cap sync ios
 
       - name: Build Unsigned IPA (For AltStore)
         run: |
