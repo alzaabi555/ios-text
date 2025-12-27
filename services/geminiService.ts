@@ -36,8 +36,11 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    // Prioritize gemini-2.0-flash-exp for its massive context window to handle full PDFs
-    const models = ['gemini-2.0-flash-exp', 'gemini-1.5-pro-latest', 'gemini-3-pro-preview'];
+    
+    // CHANGED: Prioritize stable 'flash' models. 
+    // gemini-1.5-flash has higher Rate Limits (RPM) than Pro or Exp models.
+    // Order: Stable Flash -> Newest Flash -> Pro (fallback)
+    const models = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
     
     let pdfPart;
     try {
@@ -79,7 +82,6 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
             const response = await ai.models.generateContent({
               model: modelId,
               contents: { parts: [pdfPart, { text: prompt }] },
-              // Removed maxOutputTokens to allow full document generation
               config: { temperature: 0.1 }
             });
 
@@ -98,11 +100,12 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
 
             // Smart Wait logic
             const isQuotaError = status === 429 || message.includes('429') || message.includes('quota');
-            const isServerBusy = status === 503 || message.includes('503');
+            const isServerBusy = status === 503 || message.includes('503') || message.includes('overloaded');
             
             if (attempt < maxRetries) {
               if (isQuotaError) {
-                await wait(10000); 
+                // If it's a quota error, wait longer
+                await wait(4000); 
                 continue;
               }
               if (isServerBusy) {
@@ -122,8 +125,12 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
     }
 
     if (lastError) {
-        if (lastError.message?.includes('429')) {
-            throw new Error("السيرفر مشغول (429). يرجى استخدام مفتاح API خاص.");
+        if (lastError.message?.includes('429') || lastError.status === 429) {
+            if (userKey) {
+                 throw new Error("تجاوزت الحد المسموح للطلبات في الدقيقة لمفتاحك (Rate Limit). انتظر دقيقة ثم حاول مجدداً.");
+            } else {
+                 throw new Error("الخوادم العامة مشغولة (429). يرجى استخدام مفتاح API خاص لضمان الخدمة.");
+            }
         }
         throw lastError;
     }
@@ -131,8 +138,15 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
 
   } catch (error: any) {
     console.error("Final Conversion Error:", error);
-    if (error.message?.includes('429')) {
-       throw new Error("الخوادم مشغولة (429). جرب استخدام مفتاحك الخاص.");
+    // Check user key existence for better error messaging in the outer catch as well
+    const userKey = localStorage.getItem('USER_GEMINI_API_KEY');
+    
+    if (error.message?.includes('429') || error.status === 429) {
+       if (userKey) {
+           throw new Error("تجاوزت الحد المسموح (Rate Limit). يرجى الانتظار قليلاً.");
+       } else {
+           throw new Error("الخوادم مشغولة (429). جرب استخدام مفتاحك الخاص.");
+       }
     }
     throw error;
   }
