@@ -37,10 +37,11 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // CHANGED: Prioritize stable 'flash' models. 
-    // gemini-1.5-flash has higher Rate Limits (RPM) than Pro or Exp models.
-    // Order: Stable Flash -> Newest Flash -> Pro (fallback)
-    const models = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+    // Robust Fallback Strategy:
+    // 1. gemini-2.0-flash-exp: Newest, fastest, best vision capabilities (Experimental).
+    // 2. gemini-1.5-flash: High stability, high rate limits (Production Backbone).
+    // 3. gemini-1.5-flash-8b: Lightweight, extremely fast (Emergency Fallback).
+    const models = ['gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'];
     
     let pdfPart;
     try {
@@ -77,6 +78,8 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
       try {
         console.log(`Attempting conversion using model: ${modelId}`);
         const maxRetries = 2; 
+        
+        // Retry loop for the *current* model
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             const response = await ai.models.generateContent({
@@ -89,22 +92,25 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
             if (!text) throw new Error("Empty response");
 
             const cleanHtml = text.replace(/```html/g, '').replace(/```/g, '').trim();
-            return cleanHtml;
+            return cleanHtml; // Success! Return immediately.
 
           } catch (innerError: any) {
-            const status = innerError.status || 0;
+            const status = innerError.status || innerError.response?.status || 0;
             const message = innerError.message?.toLowerCase() || '';
             console.warn(`Attempt ${attempt} failed on ${modelId}:`, message);
 
-            if (status === 404) throw innerError; 
+            // 404 (Model Not Found): Do not retry this model, throw immediately to switch to next model
+            if (status === 404 || message.includes('not found')) {
+               throw innerError; 
+            }
 
-            // Smart Wait logic
+            // 429 (Too Many Requests) or 503 (Server Busy) logic
             const isQuotaError = status === 429 || message.includes('429') || message.includes('quota');
             const isServerBusy = status === 503 || message.includes('503') || message.includes('overloaded');
             
             if (attempt < maxRetries) {
               if (isQuotaError) {
-                // If it's a quota error, wait longer
+                // Wait 4s then retry same model
                 await wait(4000); 
                 continue;
               }
@@ -113,32 +119,32 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
                  continue;
               }
             }
+            // If we ran out of retries or it's a different error, throw to outer loop
             throw innerError;
           }
         }
-        // If successful, break the model loop
-        break;
       } catch (modelError: any) {
         lastError = modelError;
-        // Continue to next model
+        console.warn(`Model ${modelId} failed completely. Switching to next model...`);
+        // The loop will continue to the next model in the list
       }
     }
 
+    // If we exit the loop, it means all models failed
     if (lastError) {
         if (lastError.message?.includes('429') || lastError.status === 429) {
             if (userKey) {
-                 throw new Error("تجاوزت الحد المسموح للطلبات في الدقيقة لمفتاحك (Rate Limit). انتظر دقيقة ثم حاول مجدداً.");
+                 throw new Error("تجاوزت الحد المسموح للطلبات (Rate Limit) لجميع النماذج المتاحة. يرجى الانتظار دقيقة.");
             } else {
-                 throw new Error("الخوادم العامة مشغولة (429). يرجى استخدام مفتاح API خاص لضمان الخدمة.");
+                 throw new Error("الخوادم مشغولة حالياً (429). يرجى المحاولة لاحقاً أو استخدام مفتاح API خاص.");
             }
         }
-        throw lastError;
+        throw new Error("تعذر تحويل الملف باستخدام أي من النماذج المتاحة. يرجى المحاولة لاحقاً.");
     }
     throw new Error("حدث خطأ غير معروف.");
 
   } catch (error: any) {
     console.error("Final Conversion Error:", error);
-    // Check user key existence for better error messaging in the outer catch as well
     const userKey = localStorage.getItem('USER_GEMINI_API_KEY');
     
     if (error.message?.includes('429') || error.status === 429) {
