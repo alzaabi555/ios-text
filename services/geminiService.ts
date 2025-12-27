@@ -82,7 +82,7 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
             const response = await ai.models.generateContent({
               model: modelId,
               contents: { parts: [pdfPart, { text: prompt }] },
-              config: { maxOutputTokens: 65536, temperature: 0.1 }
+              config: { temperature: 0.1 }
             });
 
             const text = response.text;
