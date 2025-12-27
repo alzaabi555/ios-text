@@ -36,7 +36,8 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    const models = ['gemini-2.0-flash-exp', 'gemini-3-pro-preview', 'gemini-3-flash-preview'];
+    // Prioritize gemini-2.0-flash-exp for its massive context window to handle full PDFs
+    const models = ['gemini-2.0-flash-exp', 'gemini-1.5-pro-latest', 'gemini-3-pro-preview'];
     
     let pdfPart;
     try {
@@ -47,28 +48,24 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
 
     const prompt = `
     You are an expert Educational Document Digitizer.
-    Target: Convert the provided PDF exam paper into a high-fidelity HTML document specifically optimized for **Microsoft Word Export**.
+    Target: Convert the provided PDF exam paper into a high-fidelity HTML document optimized for MS Word.
 
-    **CRITICAL RULE: NO PAGE BORDERS**
-    - **IGNORE** any outer frame, page border, or decorative line surrounding the *entire* page content in the PDF.
-    - **DO NOT** wrap the whole document in a table or div with a border.
-    - The output HTML <body> must be clean and borderless.
-    - Let the user add a page border in MS Word later if they wish.
+    **CRITICAL INSTRUCTION: PROCESS THE FULL DOCUMENT**
+    - You MUST convert **EVERY SINGLE PAGE** from the first page to the very last page.
+    - **DO NOT STOP** after 2 or 3 pages.
+    - If the PDF has 20 pages, output the HTML for all 20 pages.
+    - Do not summarize. Do not skip questions.
 
-    **LAYOUT & CONTENT RULES:**
-    - **Internal Boxes**: If a specific *question* or *section* has a box around it (like "Question 1"), you **MUST USE HTML TABLES** (<table border="1">) for that specific part only.
-    - **Tables**: Use \`width="100%"\`, \`border-collapse: collapse\`, and \`border: 1px solid #000\`.
-    - **Direction**: Default \`dir="rtl"\`.
-    - **Text**: Preserve font weight, underlining, and layout logic accurately.
-    - **Math**: Use clear text representation or simple HTML entities.
+    **LAYOUT & WORD COMPATIBILITY RULES:**
+    - **NO Page Borders**: Do not add a border around the <body> or the main container.
+    - **Question Boxes**: If a question has a box around it, use <table width="100%" border="1" cellspacing="0" cellpadding="5">.
+    - **Images/Diagrams**: Draw them as inline SVGs. You MUST specify explicit width="X" and height="Y" (e.g., width="300" height="150") for every SVG.
+    - **Direction**: dir="rtl" for Arabic.
 
-    **DIAGRAMS & MAPS (SVG RULES):**
-    - Use **Inline SVG** for geometry, charts, and drawings.
-    - **MANDATORY**: You must specify \`width="X" height="Y"\` attributes in pixels on the <svg> tag.
-    - Style: High contrast (Black lines, White fill).
-
-    **OUTPUT:**
-    Return ONLY the raw HTML <body> content. No markdown code blocks.
+    **OUTPUT FORMAT:**
+    - Return ONLY the raw HTML code inside the <body> tag. 
+    - Do not include \`\`\`html markdown blocks.
+    - Just the content.
     `;
 
     let lastError: any = null;
@@ -76,12 +73,13 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
     for (const modelId of models) {
       try {
         console.log(`Attempting conversion using model: ${modelId}`);
-        const maxRetries = 3; 
+        const maxRetries = 2; 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             const response = await ai.models.generateContent({
               model: modelId,
               contents: { parts: [pdfPart, { text: prompt }] },
+              // Removed maxOutputTokens to allow full document generation
               config: { temperature: 0.1 }
             });
 
@@ -94,7 +92,7 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
           } catch (innerError: any) {
             const status = innerError.status || 0;
             const message = innerError.message?.toLowerCase() || '';
-            console.warn(`Attempt ${attempt} failed:`, message);
+            console.warn(`Attempt ${attempt} failed on ${modelId}:`, message);
 
             if (status === 404) throw innerError; 
 
@@ -104,7 +102,7 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
             
             if (attempt < maxRetries) {
               if (isQuotaError) {
-                await wait(12000); 
+                await wait(10000); 
                 continue;
               }
               if (isServerBusy) {
@@ -115,8 +113,11 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
             throw innerError;
           }
         }
+        // If successful, break the model loop
+        break;
       } catch (modelError: any) {
         lastError = modelError;
+        // Continue to next model
       }
     }
 
