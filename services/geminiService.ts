@@ -31,9 +31,10 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     // Priority list of models.
-    // gemini-2.0-flash-thinking-exp: Best for reasoning about geometry and generating SVG code.
-    // gemini-1.5-pro: Strong fallback for vision.
-    const models = ['gemini-2.0-flash-thinking-exp', 'gemini-1.5-pro-latest', 'gemini-1.5-flash'];
+    // Updated to use Gemini 3 series as per latest API availability.
+    // gemini-3-pro-preview: Best for complex reasoning and SVG generation.
+    // gemini-3-flash-preview: Fast fallback.
+    const models = ['gemini-3-pro-preview', 'gemini-3-flash-preview'];
     
     let pdfPart;
     try {
@@ -93,8 +94,8 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
                 ]
               },
               config: {
-                // Thinking budget helps with complex geometry calculation (only for supported models)
-                thinkingConfig: modelId.includes('thinking') ? { thinkingBudget: 1024 } : undefined, 
+                // Gemini 3 models handle thinking automatically. 
+                // We set temperature low for deterministic formatting.
                 temperature: 0.1
               }
             });
@@ -115,18 +116,20 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
           } catch (innerError: any) {
             console.warn(`Attempt ${attempt} with ${modelId} failed:`, innerError);
             
-            // If it's a Quota error (429), break inner loop to try next model immediately
-            if (innerError.status === 429 || innerError.message?.includes('429') || innerError.message?.includes('quota')) {
+            // If it's a Quota error (429) or Not Found (404), break inner loop to try next model immediately
+            const status = innerError.status || 0;
+            const message = innerError.message?.toLowerCase() || '';
+            
+            if (status === 429 || status === 404 || message.includes('429') || message.includes('quota') || message.includes('not found')) {
                throw innerError; 
             }
 
             // If network error, wait and retry same model
-            const errorMessage = innerError.toString().toLowerCase();
             const isNetworkError = 
-              errorMessage.includes('xhr') || 
-              errorMessage.includes('fetch') || 
-              errorMessage.includes('500') || 
-              errorMessage.includes('503');
+              message.includes('xhr') || 
+              message.includes('fetch') || 
+              message.includes('500') || 
+              message.includes('503');
 
             if (attempt < maxRetries && isNetworkError) {
               await wait(attempt * 2000);
