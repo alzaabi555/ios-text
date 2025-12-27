@@ -10,7 +10,9 @@ const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: s
       resolve({
         inlineData: {
           data: base64Data,
-          mimeType: file.type,
+          // FORCE application/pdf. 
+          // Mobile browsers sometimes send generic binary types which fail the API.
+          mimeType: 'application/pdf', 
         },
       });
     };
@@ -31,16 +33,15 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
     const apiKey = process.env.API_KEY;
 
     if (!apiKey) {
-      throw new Error("لم يتم العثور على مفتاح API في الإعدادات الداخلية للتطبيق.");
+      throw new Error("لم يتم العثور على مفتاح API. يرجى التأكد من الإعدادات.");
     }
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // STRATEGY FOR TIER 1 (STABLE):
-    // 1. gemini-1.5-pro: The most stable high-intelligence model available. Excellent for Arabic & Tables.
-    // 2. gemini-1.5-flash: Fast fallback.
-    // We removed 'preview' models to avoid 404 errors.
-    const models = ['gemini-1.5-pro', 'gemini-1.5-flash'];
+    // UPDATED MODELS: Use Gemini 3 series to prevent 404 errors on older endpoints
+    // gemini-3-pro-preview: Best for complex reasoning and structure analysis
+    // gemini-3-flash-preview: Faster fallback
+    const models = ['gemini-3-pro-preview', 'gemini-3-flash-preview'];
     
     let pdfPart;
     try {
@@ -55,7 +56,6 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
 
     **CRITICAL INSTRUCTION: PROCESS THE FULL DOCUMENT**
     - You MUST convert **EVERY SINGLE PAGE** from the first page to the very last page.
-    - **DO NOT STOP** after 2 or 3 pages.
     - If the PDF has 20 pages, output the HTML for all 20 pages.
     - Do not summarize. Do not skip questions.
 
@@ -75,7 +75,7 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
 
     for (const modelId of models) {
       try {
-        console.log(`Attempting conversion using Tier 1 model: ${modelId}`);
+        console.log(`Attempting conversion using model: ${modelId}`);
         const maxRetries = 2; 
         
         // Retry loop
@@ -83,27 +83,57 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
           try {
             const response = await ai.models.generateContent({
               model: modelId,
-              // Optimized: Pass PDF as content, Prompt as System Instruction for stricter adherence
-              contents: { parts: [pdfPart, { text: "Convert this entire document to HTML following the system instructions." }] },
+              contents: { parts: [pdfPart, { text: "Digitize this entire PDF to HTML perfectly. Follow system instructions." }] },
               config: { 
                 temperature: 0.1,
-                systemInstruction: systemPrompt
+                systemInstruction: systemPrompt,
+                // CRITICAL: Disable safety settings to prevent false positives on exam papers
+                safetySettings: [
+                  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+                ]
               }
             });
 
+            // Check if we have candidates
+            if (!response.candidates || response.candidates.length === 0) {
+               console.warn(`Model ${modelId} returned no candidates on attempt ${attempt}`);
+               throw new Error("No candidates returned");
+            }
+
+            // Check finish reason
+            const candidate = response.candidates[0];
+            if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+                console.warn(`Model ${modelId} finished with reason: ${candidate.finishReason}`);
+                if (candidate.finishReason === 'SAFETY') throw new Error("Blocked by Safety");
+                if (candidate.finishReason === 'RECITATION') throw new Error("Blocked by Recitation");
+            }
+
             const text = response.text;
-            if (!text) throw new Error("Empty response");
+            
+            if (!text) {
+               console.warn(`Model ${modelId} returned empty text on attempt ${attempt}`);
+               throw new Error("Empty response text");
+            }
 
             const cleanHtml = text.replace(/```html/g, '').replace(/```/g, '').trim();
             return cleanHtml; 
 
           } catch (innerError: any) {
             const status = innerError.status || innerError.response?.status || 0;
-            const message = innerError.message?.toLowerCase() || '';
+            // Handle cases where message is a JSON string
+            let message = innerError.message || '';
+            try {
+                if (message.startsWith('{')) message = JSON.parse(message).error?.message || message;
+            } catch(e) {}
+            message = message.toLowerCase();
+
             console.warn(`Attempt ${attempt} failed on ${modelId}:`, message);
 
             if (status === 404 || message.includes('not found')) {
-               throw innerError; 
+               throw innerError; // Move to next model immediately if model not found
             }
 
             const isQuotaError = status === 429 || message.includes('429') || message.includes('quota');
@@ -111,16 +141,17 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
             
             if (attempt < maxRetries) {
               if (isQuotaError) {
-                // Tier 1 allows faster retries
-                await wait(2000); 
+                await wait(2000 * attempt); 
                 continue;
               }
               if (isServerBusy) {
-                 await wait(attempt * 1000);
+                 await wait(1000 * attempt);
                  continue;
               }
+              await wait(1000); // Standard retry
+            } else {
+               throw innerError;
             }
-            throw innerError;
           }
         }
       } catch (modelError: any) {
@@ -129,19 +160,49 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
       }
     }
 
+    // Detailed Error Reporting
     if (lastError) {
-        if (lastError.message?.includes('429') || lastError.status === 429) {
-            throw new Error("ضغط عالي على الخوادم (Rate Limit). يرجى الانتظار لحظات.");
+        let msg = lastError.message || '';
+         // Try to parse if it looks like JSON to avoid showing raw JSON to user
+        try {
+            if (msg.trim().startsWith('{')) {
+                 const parsed = JSON.parse(msg);
+                 if (parsed.error && parsed.error.message) msg = parsed.error.message;
+            }
+        } catch (e) {}
+        
+        const lowerMsg = msg.toLowerCase();
+        
+        if (lowerMsg.includes('404') || lowerMsg.includes('not found')) {
+             throw new Error("موديل الذكاء الاصطناعي غير متوفر حالياً (404). يرجى التحقق من المفتاح أو استخدام موديل أحدث.");
         }
-        throw new Error("تعذر تحويل الملف. يرجى التأكد من أن الملف قابل للقراءة.");
+        if (lowerMsg.includes('429')) {
+            throw new Error("ضغط عالي على الخوادم (Rate Limit). يرجى المحاولة لاحقاً.");
+        }
+        if (lowerMsg.includes('safety') || lowerMsg.includes('blocked')) {
+            throw new Error("تم حظر الملف لسياسات المحتوى. يرجى تجربة ملف آخر.");
+        }
+        if (lowerMsg.includes('recitation')) {
+             throw new Error("تم حظر الملف بسبب حقوق النشر (Recitation).");
+        }
+        if (lowerMsg.includes('400') || lowerMsg.includes('invalid argument')) {
+            throw new Error("الملف تالف أو غير مدعوم من قبل النموذج.");
+        }
+        if (lowerMsg.includes('empty response') || lowerMsg.includes('no candidates')) {
+             throw new Error("لم يتمكن الذكاء الاصطناعي من قراءة محتوى الملف. تأكد أن الملف نصي وليس صوراً فقط.");
+        }
+        
+        // Fallback with clean error info
+        throw new Error(`فشلت العملية: ${msg}`);
     }
-    throw new Error("حدث خطأ غير معروف.");
+    
+    throw new Error("حدث خطأ غير متوقع.");
 
   } catch (error: any) {
     console.error("Final Conversion Error:", error);
-    if (error.message?.includes('429') || error.status === 429) {
-       throw new Error("يرجى الانتظار قليلاً قبل المحاولة مرة أخرى.");
-    }
-    throw error;
+    let finalMsg = error.message || "حدث خطأ غير متوقع";
+    // Clean up if it's the catch-all
+    if (finalMsg.startsWith('Error: ')) finalMsg = finalMsg.substring(7);
+    throw new Error(finalMsg);
   }
 };
