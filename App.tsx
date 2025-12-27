@@ -20,6 +20,7 @@ const App: React.FC = () => {
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [copied, setCopied] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string>('');
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -53,9 +54,83 @@ const App: React.FC = () => {
     }
   };
 
+  // Helper function to convert SVG strings to Base64 PNGs
+  const processHtmlForExport = async (rawHtml: string): Promise<string> => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(rawHtml, 'text/html');
+    const svgs = doc.querySelectorAll('svg');
+
+    if (svgs.length === 0) return rawHtml;
+
+    // Process all SVGs sequentially
+    const conversionPromises = Array.from(svgs).map(async (svg) => {
+      return new Promise<void>((resolve) => {
+        try {
+          const svgData = new XMLSerializer().serializeToString(svg);
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const img = new Image();
+
+          // Get dimensions (fallback to 300x150 if not specified)
+          const width = svg.viewBox.baseVal?.width || svg.width.baseVal?.value || 300;
+          const height = svg.viewBox.baseVal?.height || svg.height.baseVal?.value || 150;
+          
+          // High resolution factor for printing
+          const scale = 3; 
+          canvas.width = width * scale;
+          canvas.height = height * scale;
+
+          const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(svgBlob);
+
+          img.onload = () => {
+            if (ctx) {
+              // Draw white background (Word doesn't like transparent PNGs sometimes)
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              
+              const pngData = canvas.toDataURL('image/png');
+              
+              // Create replacement IMG tag
+              const newImg = doc.createElement('img');
+              newImg.src = pngData;
+              newImg.width = width; // Set display width to original size
+              newImg.height = height;
+              newImg.style.maxWidth = '100%';
+              newImg.style.height = 'auto';
+              
+              // Replace SVG with IMG
+              svg.parentNode?.replaceChild(newImg, svg);
+            }
+            URL.revokeObjectURL(url);
+            resolve();
+          };
+
+          img.onerror = () => {
+            console.error('Failed to convert SVG to Image');
+            resolve(); // Resolve anyway to avoid hanging
+          };
+
+          img.src = url;
+        } catch (e) {
+          console.error("SVG Conversion Error", e);
+          resolve();
+        }
+      });
+    });
+
+    await Promise.all(conversionPromises);
+    return doc.body.innerHTML;
+  };
+
   const handleDownload = async () => {
     if (!convertedDoc) return;
+    setIsExporting(true);
     
+    // 1. Convert SVGs to PNGs for Word compatibility
+    const processedBodyContent = await processHtmlForExport(convertedDoc.htmlContent);
+
     // Updated CSS: Explicit 2cm margins for all directions and generic @page support
     const preHtml = `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' 
@@ -98,17 +173,23 @@ const App: React.FC = () => {
             border: 1px solid #000; 
             padding: 5pt; 
           }
+
+          /* Images */
+          img {
+            max-width: 100%;
+            height: auto;
+          }
           
           div.Section1 { page: Section1; }
         </style>
       </head>
       <body>
-        <div class="Section1">${convertedDoc.htmlContent}</div>
+        <div class="Section1">${processedBodyContent}</div>
       </body>
       </html>
     `;
 
-    // 1. Mobile (iOS/Android) Share/Save Logic
+    // 2. Mobile (iOS/Android) Share/Save Logic
     if (Capacitor.isNativePlatform()) {
       try {
         const fileName = `${convertedDoc.fileName}.doc`;
@@ -132,13 +213,17 @@ const App: React.FC = () => {
       } catch (e) {
         console.error("Share failed", e);
         // Only alert if it's not a user cancellation (which is common in share sheets)
-        if (JSON.stringify(e).toLowerCase().includes('cancel')) return;
+        if (JSON.stringify(e).toLowerCase().includes('cancel')) {
+          setIsExporting(false);
+          return;
+        }
         alert('حدث خطأ أثناء محاولة المشاركة.');
       }
+      setIsExporting(false);
       return;
     }
 
-    // 2. Web/Desktop Logic
+    // 3. Web/Desktop Logic
     const blob = new Blob(['\ufeff', preHtml], { type: 'application/msword' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -148,6 +233,7 @@ const App: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    setIsExporting(false);
   };
 
   const handleCopy = async () => {
@@ -268,10 +354,22 @@ const App: React.FC = () => {
 
                 <button 
                   onClick={handleDownload}
-                  className="flex items-center gap-2 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-md shadow-indigo-200 transition-all transform hover:scale-105 font-medium text-sm"
+                  disabled={isExporting}
+                  className={`
+                    flex items-center gap-2 px-6 py-2 rounded-lg shadow-md shadow-indigo-200 transition-all font-medium text-sm
+                    ${isExporting 
+                      ? 'bg-indigo-400 cursor-wait text-white' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white transform hover:scale-105'}
+                  `}
                 >
-                  {Capacitor.isNativePlatform() ? <ShareIcon size={18} /> : <Download size={18} />}
-                  <span>{Capacitor.isNativePlatform() ? 'حفظ / مشاركة' : 'تحميل Word'}</span>
+                  {isExporting ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    Capacitor.isNativePlatform() ? <ShareIcon size={18} /> : <Download size={18} />
+                  )}
+                  <span>
+                    {isExporting ? 'جاري التحضير...' : (Capacitor.isNativePlatform() ? 'حفظ / مشاركة' : 'تحميل Word')}
+                  </span>
                 </button>
               </div>
             </div>
