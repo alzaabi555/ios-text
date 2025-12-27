@@ -22,14 +22,12 @@ const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: s
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const convertPdfToHtml = async (file: File): Promise<string> => {
-  // Client-side validation: 10MB limit to prevent XHR/Payload errors with inline base64
+  // Client-side validation: 10MB limit
   if (file.size > 10 * 1024 * 1024) {
     throw new Error("عذراً، حجم الملف كبير جداً. يرجى استخدام ملف أقل من 10 ميجابايت لضمان سرعة واستقرار المعالجة.");
   }
 
   try {
-    // 1. Priority: User's Custom Key from Settings (Local Storage)
-    // 2. Fallback: The default environment key
     const userKey = localStorage.getItem('USER_GEMINI_API_KEY');
     const apiKey = userKey || process.env.API_KEY;
 
@@ -38,8 +36,6 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
     }
 
     const ai = new GoogleGenAI({ apiKey });
-    
-    // Priority list of models.
     const models = ['gemini-2.0-flash-exp', 'gemini-3-pro-preview', 'gemini-3-flash-preview'];
     
     let pdfPart;
@@ -50,139 +46,92 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
     }
 
     const prompt = `
-    You are an expert Educational Document Digitizer specialized in ALL Academic Subjects (Math, Physics, Chemistry, Biology, Geography, and Languages).
-    
-    Target: Convert the provided PDF exam paper into a high-fidelity HTML document compatible with MS Word.
+    You are an expert Educational Document Digitizer.
+    Target: Convert the provided PDF exam paper into a high-fidelity HTML document specifically optimized for **Microsoft Word Export**.
 
-    **CRITICAL INSTRUCTION: FULL DOCUMENT CONVERSION**
-    - You MUST convert **EVERY SINGLE PAGE** in the PDF file.
-    - **DO NOT STOP** after the first few pages.
-    - **DO NOT SUMMARIZE**.
-    - If the document is long, continue generating HTML until the very last question of the last page.
+    **CRITICAL RULE: NO PAGE BORDERS**
+    - **IGNORE** any outer frame, page border, or decorative line surrounding the *entire* page content in the PDF.
+    - **DO NOT** wrap the whole document in a table or div with a border.
+    - The output HTML <body> must be clean and borderless.
+    - Let the user add a page border in MS Word later if they wish.
 
-    **CRITICAL RULES FOR DIAGRAMS & MAPS (SVG GENERATION):**
-    The document may contain visual elements from various subjects.
-    1. **Mathematics**: Geometry (Triangles, Circles, Functions, Coordinates).
-    2. **Physics**: Electric circuits, Forces, Optics diagrams.
-    3. **Chemistry**: Molecules, Bonds, Laboratory apparatus.
-    4. **Biology**: Simplified anatomical diagrams (Cells, Organs).
-    5. **Geography**: Maps (Country outlines, Topographic lines).
+    **LAYOUT & CONTENT RULES:**
+    - **Internal Boxes**: If a specific *question* or *section* has a box around it (like "Question 1"), you **MUST USE HTML TABLES** (<table border="1">) for that specific part only.
+    - **Tables**: Use \`width="100%"\`, \`border-collapse: collapse\`, and \`border: 1px solid #000\`.
+    - **Direction**: Default \`dir="rtl"\`.
+    - **Text**: Preserve font weight, underlining, and layout logic accurately.
+    - **Math**: Use clear text representation or simple HTML entities.
 
-    **DRAWING RULES:**
-    - **DO NOT** use image placeholders.
-    - **YOU MUST DRAW** these using **Inline SVG Code**.
-    - **Style**: Black stroke (#000), stroke-width="2", transparent or light-gray (#eee) fill.
-    - **Labels**: Preserve labels inside the SVG (e.g., "Voltmeter", "Cytoplasm", "Egypt", "5cm").
-    - **Simplification**: For complex maps or biological drawings, draw a clean *schematic* vector representation (outlines only).
+    **DIAGRAMS & MAPS (SVG RULES):**
+    - Use **Inline SVG** for geometry, charts, and drawings.
+    - **MANDATORY**: You must specify \`width="X" height="Y"\` attributes in pixels on the <svg> tag.
+    - Style: High contrast (Black lines, White fill).
 
-    **TEXT & LAYOUT RULES:**
-    1. **Structure**: Return ONLY the HTML <body> content.
-    2. **Language Handling**:
-       - Default direction: dir="rtl" (Arabic).
-       - **English/Foreign Language**: If a section or paragraph is in English/French, you MUST wrap it in <div dir="ltr" style="text-align: left; font-family: 'Arial', sans-serif;">...</div>.
-    3. **Formatting**: Preserve H1/H2 headings, Bold, and Font sizes.
-    4. **Scientific Formulas**: Use HTML <sub> and <sup> tags (e.g., H<sub>2</sub>O, x<sup>2</sup>, 10<sup>-6</sup>).
-    5. **Tables**: Use standard HTML tables with border="1" style="border-collapse: collapse; width: 100%;".
-    6. **Correction**: Fix OCR errors (e.g., broken Arabic characters).
-
-    Output raw HTML only. No markdown blocks.
+    **OUTPUT:**
+    Return ONLY the raw HTML <body> content. No markdown code blocks.
     `;
 
     let lastError: any = null;
 
-    // Loop through models as fallback mechanism
     for (const modelId of models) {
       try {
         console.log(`Attempting conversion using model: ${modelId}`);
-        
-        // Inner Retry Loop for transient network errors AND Rate Limits
-        const maxRetries = 3; // Increased retries to handle 429 waits
+        const maxRetries = 3; 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             const response = await ai.models.generateContent({
               model: modelId,
-              contents: {
-                parts: [
-                  pdfPart,
-                  { text: prompt }
-                ]
-              },
-              config: {
-                maxOutputTokens: 65536, 
-                temperature: 0.1
-              }
+              contents: { parts: [pdfPart, { text: prompt }] },
+              config: { maxOutputTokens: 65536, temperature: 0.1 }
             });
 
             const text = response.text;
-            if (!text) {
-              throw new Error("لم يتم استرجاع أي بيانات من الخادم.");
-            }
+            if (!text) throw new Error("Empty response");
 
-            // Advanced Cleanup
-            const cleanHtml = text
-              .replace(/```html/g, '')
-              .replace(/```/g, '')
-              .trim();
-            
-            return cleanHtml; // Success! Return immediately.
+            const cleanHtml = text.replace(/```html/g, '').replace(/```/g, '').trim();
+            return cleanHtml;
 
           } catch (innerError: any) {
             const status = innerError.status || 0;
             const message = innerError.message?.toLowerCase() || '';
-            
-            // Log warning
-            console.warn(`Attempt ${attempt} with ${modelId} failed:`, message);
+            console.warn(`Attempt ${attempt} failed:`, message);
 
-            // Handle 404 (Not Found) - Abort this model immediately
-            if (status === 404 || message.includes('not found')) {
-               throw innerError; 
-            }
+            if (status === 404) throw innerError; 
 
-            // SMART WAIT LOGIC:
-            // If error is 429 (Quota/Rate Limit) OR 503 (Overloaded)
+            // Smart Wait logic
             const isQuotaError = status === 429 || message.includes('429') || message.includes('quota');
-            const isServerBusy = status === 503 || message.includes('503') || message.includes('overloaded');
+            const isServerBusy = status === 503 || message.includes('503');
             
             if (attempt < maxRetries) {
               if (isQuotaError) {
-                // If it's a Quota error, wait significantly longer (e.g., 12 seconds) to let the Token Bucket refill
-                console.log("Quota hit (429). Waiting 12s before retry...");
                 await wait(12000); 
                 continue;
               }
-              
-              if (isServerBusy || message.includes('xhr') || message.includes('fetch')) {
-                 // Network glitch or busy server, short wait
+              if (isServerBusy) {
                  await wait(attempt * 2000);
                  continue;
               }
             }
-            
-            // If we ran out of retries or it's a fatal error, throw.
             throw innerError;
           }
         }
       } catch (modelError: any) {
-        console.error(`Model ${modelId} failed completely.`, modelError);
         lastError = modelError;
-        // Continue to the next model in the list...
       }
     }
 
-    // If all models failed
     if (lastError) {
-        if (lastError.message?.includes('429') || lastError.message?.includes('quota')) {
-            throw new Error("السيرفر مشغول جداً حالياً بسبب ضغط الملفات الكبيرة. يرجى المحاولة بعد دقيقة أو استخدام مفتاح API خاص في الإعدادات.");
+        if (lastError.message?.includes('429')) {
+            throw new Error("السيرفر مشغول (429). يرجى استخدام مفتاح API خاص.");
         }
         throw lastError;
     }
-    
-    throw new Error("حدث خطأ غير معروف أثناء المعالجة.");
+    throw new Error("حدث خطأ غير معروف.");
 
   } catch (error: any) {
     console.error("Final Conversion Error:", error);
-    if (error.message?.includes('429') || error.message?.includes('quota')) {
-       throw new Error("عفواً، الخوادم مشغولة جداً الآن (429). جرب استخدام مفتاحك الخاص من الإعدادات.");
+    if (error.message?.includes('429')) {
+       throw new Error("الخوادم مشغولة (429). جرب استخدام مفتاحك الخاص.");
     }
     throw error;
   }
