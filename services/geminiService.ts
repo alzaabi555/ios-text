@@ -28,20 +28,20 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
   }
 
   try {
-    const userKey = localStorage.getItem('USER_GEMINI_API_KEY');
-    const apiKey = userKey || process.env.API_KEY;
+    // For personal use, we rely strictly on the environment variable injected during build
+    const apiKey = process.env.API_KEY;
 
     if (!apiKey) {
-      throw new Error("لم يتم العثور على مفتاح API. يرجى إضافة مفتاحك في الإعدادات.");
+      throw new Error("لم يتم العثور على مفتاح API في الإعدادات الداخلية للتطبيق.");
     }
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // Robust Fallback Strategy:
-    // 1. gemini-2.0-flash-exp: Newest, fastest, best vision capabilities (Experimental).
-    // 2. gemini-1.5-flash: High stability, high rate limits (Production Backbone).
-    // 3. gemini-1.5-flash-8b: Lightweight, extremely fast (Emergency Fallback).
-    const models = ['gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'];
+    // STRATEGY FOR PAID TIER (PERSONAL USE):
+    // 1. gemini-1.5-pro: Prioritize QUALITY. It handles Arabic layout and complex tables best.
+    // 2. gemini-2.0-flash-exp: Use as backup if Pro is overloaded (very fast).
+    // 3. gemini-1.5-flash: Stable fallback.
+    const models = ['gemini-1.5-pro', 'gemini-2.0-flash-exp', 'gemini-1.5-flash'];
     
     let pdfPart;
     try {
@@ -99,19 +99,19 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
             const message = innerError.message?.toLowerCase() || '';
             console.warn(`Attempt ${attempt} failed on ${modelId}:`, message);
 
-            // 404 (Model Not Found): Do not retry this model, throw immediately to switch to next model
+            // 404 (Model Not Found): Do not retry this model.
             if (status === 404 || message.includes('not found')) {
                throw innerError; 
             }
 
-            // 429 (Too Many Requests) or 503 (Server Busy) logic
+            // 429 (Quota) or 503 (Overloaded)
             const isQuotaError = status === 429 || message.includes('429') || message.includes('quota');
             const isServerBusy = status === 503 || message.includes('503') || message.includes('overloaded');
             
             if (attempt < maxRetries) {
               if (isQuotaError) {
-                // Wait 4s then retry same model
-                await wait(4000); 
+                // Wait 5s for paid tier quota reset
+                await wait(5000); 
                 continue;
               }
               if (isServerBusy) {
@@ -119,40 +119,28 @@ export const convertPdfToHtml = async (file: File): Promise<string> => {
                  continue;
               }
             }
-            // If we ran out of retries or it's a different error, throw to outer loop
             throw innerError;
           }
         }
       } catch (modelError: any) {
         lastError = modelError;
         console.warn(`Model ${modelId} failed completely. Switching to next model...`);
-        // The loop will continue to the next model in the list
       }
     }
 
-    // If we exit the loop, it means all models failed
+    // Final Error Handling
     if (lastError) {
         if (lastError.message?.includes('429') || lastError.status === 429) {
-            if (userKey) {
-                 throw new Error("تجاوزت الحد المسموح للطلبات (Rate Limit) لجميع النماذج المتاحة. يرجى الانتظار دقيقة.");
-            } else {
-                 throw new Error("الخوادم مشغولة حالياً (429). يرجى المحاولة لاحقاً أو استخدام مفتاح API خاص.");
-            }
+            throw new Error("تم استهلاك حصة المفتاح (Quota) مؤقتاً. يرجى الانتظار دقيقة قبل المحاولة مجدداً.");
         }
-        throw new Error("تعذر تحويل الملف باستخدام أي من النماذج المتاحة. يرجى المحاولة لاحقاً.");
+        throw new Error("تعذر تحويل الملف. قد يكون الخادم مشغولاً جداً أو الملف معقداً.");
     }
     throw new Error("حدث خطأ غير معروف.");
 
   } catch (error: any) {
     console.error("Final Conversion Error:", error);
-    const userKey = localStorage.getItem('USER_GEMINI_API_KEY');
-    
     if (error.message?.includes('429') || error.status === 429) {
-       if (userKey) {
-           throw new Error("تجاوزت الحد المسموح (Rate Limit). يرجى الانتظار قليلاً.");
-       } else {
-           throw new Error("الخوادم مشغولة (429). جرب استخدام مفتاحك الخاص.");
-       }
+       throw new Error("تم استهلاك حصة المفتاح (Quota). يرجى الانتظار قليلاً.");
     }
     throw error;
   }
