@@ -8,11 +8,16 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    title: "Muhawil Pro",
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false, // For simple interaction in this demo scope
+      devTools: false // Disable dev tools in production for cleaner look
     },
-    icon: path.join(__dirname, '../public/icon.png')
+    icon: path.join(__dirname, '../public/icon.png'),
+    autoHideMenuBar: true // Hide the ugly top menu on Windows
   });
 
   // In production, load the local bundle file
@@ -22,8 +27,6 @@ function createWindow() {
     // In dev, load the vite server
     win.loadURL('http://localhost:5173');
   }
-  
-  win.setMenuBarVisibility(false);
 }
 
 app.whenReady().then(createWindow);
