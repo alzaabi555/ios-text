@@ -59,8 +59,22 @@ jobs:
         run: |
           npx cap add android || true
       
-      - name: Generate Icons (Must run after cap add)
-        run: npx capacitor-assets generate --icon public/icon.png --android
+      - name: Ensure Assets Exist
+        run: |
+          mkdir -p assets
+          # If user forgot to put icon in assets, take from public
+          if [ ! -f assets/icon.png ] && [ -f public/icon.png ]; then
+            echo "Copying icon from public to assets..."
+            cp public/icon.png assets/icon.png
+          fi
+          # If user has no splash, use icon as splash
+          if [ ! -f assets/splash.png ] && [ -f assets/icon.png ]; then
+            echo "Creating splash from icon..."
+            cp assets/icon.png assets/splash.png
+          fi
+
+      - name: Generate Icons
+        run: npx capacitor-assets generate --android
 
       - name: Sync Capacitor
         run: npx cap sync android
@@ -98,8 +112,22 @@ jobs:
         run: |
           npx cap add ios || true
 
-      - name: Generate Icons (Must run after cap add)
-        run: npx capacitor-assets generate --icon public/icon.png --ios
+      - name: Ensure Assets Exist
+        run: |
+          mkdir -p assets
+          # If user forgot to put icon in assets, take from public
+          if [ ! -f assets/icon.png ] && [ -f public/icon.png ]; then
+            echo "Copying icon from public to assets..."
+            cp public/icon.png assets/icon.png
+          fi
+          # If user has no splash, use icon as splash
+          if [ ! -f assets/splash.png ] && [ -f assets/icon.png ]; then
+            echo "Creating splash from icon..."
+            cp assets/icon.png assets/splash.png
+          fi
+
+      - name: Generate Icons
+        run: npx capacitor-assets generate --ios
 
       - name: Sync Capacitor
         run: npx cap sync ios
