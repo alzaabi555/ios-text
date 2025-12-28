@@ -10,7 +10,7 @@ export const Navbar: React.FC<NavbarProps> = ({ fileName }) => {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-50 pt-safe px-4 md:px-6 py-4 pointer-events-none">
+      <nav className="fixed top-0 left-0 right-0 z-50 pt-safe-nav px-4 md:px-6 pb-4 pointer-events-none transition-all duration-300">
         <div className="max-w-7xl mx-auto pointer-events-auto">
           <div className="glass-panel rounded-2xl shadow-lg shadow-indigo-500/5 px-4 h-16 flex items-center justify-between transition-all duration-300">
             {/* Brand */}
@@ -76,7 +76,7 @@ export const Navbar: React.FC<NavbarProps> = ({ fileName }) => {
 
       {/* About Modal */}
       {showAbout && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in pt-safe">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-fade-in-up border border-white/40 ring-1 ring-black/5">
             <div className="relative p-6 text-center">
                <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-indigo-50 to-transparent"></div>

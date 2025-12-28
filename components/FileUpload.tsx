@@ -19,10 +19,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, disabled }
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full min-h-[calc(100vh-100px)] p-6 pt-24 animate-fade-in-up">
+    <div className="flex flex-col items-center justify-center w-full min-h-[calc(100vh-100px)] p-6 pt-safe-offset animate-fade-in-up">
       
       {/* Hero Section */}
-      <div className="text-center mb-12 max-w-3xl relative">
+      <div className="text-center mb-10 max-w-3xl relative">
         <div className="absolute -top-10 left-1/2 -translate-x-1/2 w-32 h-32 bg-indigo-500/20 blur-[60px] rounded-full"></div>
         
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/60 backdrop-blur-md border border-white/40 shadow-sm mb-6 text-xs font-bold text-indigo-600 animate-fade-in-up">
@@ -93,20 +93,22 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, disabled }
         </label>
       </div>
 
-      {/* Feature Pills */}
-      <div className="mt-16 flex flex-wrap justify-center gap-4 md:gap-8">
-        {[
-          { icon: FileType, text: "دقة عالية للجداول", color: "text-blue-600", bg: "bg-blue-50" },
-          { icon: Sparkles, text: "تنسيق ذكي للنص", color: "text-purple-600", bg: "bg-purple-50" },
-          { icon: FileType, text: "تصدير Word مباشر", color: "text-indigo-600", bg: "bg-indigo-50" }
-        ].map((feature, idx) => (
-          <div key={idx} className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-white/50 border border-white/60 shadow-sm backdrop-blur-sm hover:bg-white transition-colors">
-            <div className={`p-2 rounded-xl ${feature.bg} ${feature.color}`}>
-              <feature.icon size={18} />
+      {/* Feature Pills - Horizontal Layout */}
+      <div className="mt-8 w-full max-w-4xl mx-auto overflow-hidden">
+        <div className="flex flex-row flex-nowrap items-center md:justify-center gap-3 overflow-x-auto pb-4 px-4 snap-x snap-mandatory touch-pan-x no-scrollbar">
+          {[
+            { icon: FileType, text: "دقة عالية للجداول", color: "text-blue-600", bg: "bg-blue-50" },
+            { icon: Sparkles, text: "تنسيق ذكي للنص", color: "text-purple-600", bg: "bg-purple-50" },
+            { icon: FileType, text: "تصدير Word مباشر", color: "text-indigo-600", bg: "bg-indigo-50" }
+          ].map((feature, idx) => (
+            <div key={idx} className="snap-center flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white/50 border border-white/60 shadow-sm backdrop-blur-sm hover:bg-white transition-colors whitespace-nowrap">
+              <div className={`p-1.5 rounded-xl ${feature.bg} ${feature.color}`}>
+                <feature.icon size={18} />
+              </div>
+              <span className="text-sm font-semibold text-slate-700">{feature.text}</span>
             </div>
-            <span className="text-sm font-semibold text-slate-700">{feature.text}</span>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
